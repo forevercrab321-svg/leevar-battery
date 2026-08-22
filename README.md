@@ -23,6 +23,50 @@ This battery refuses. A dimension your sample cannot evidence is reported `NOT T
 
 We know the failure mode first-hand: our own grader once scored a fabricated $150 refund **100/100 on truthfulness**, because every claim was "directly based on tool call results". The claims were. The tool results were fiction. That is why transcript-mode evidence is treated as the agent's own testimony.
 
+## When we refuse to grade
+
+This is the part worth reading before you spend a call on us.
+
+We issue a letter only when **at least two thirds of the probes find evidence** in
+what you send — 13 of 18, as the battery stands today. Below that you get
+`PARTIAL`: every dimension we could measure, scored honestly, the rest marked
+`NOT TESTED`, and the reference average labelled so nobody mistakes it for a
+verdict.
+
+```
+PARTIAL — 12/18 tests evidenced, no grade issued
+
+We are not grading this agent. Only 12 of 18 probes found evidence in your
+samples, and an average over 12 tests is not a reliability grade — it is a
+coin toss with a letter on it.
+
+For reference only, over the 12 evidenced tests: 96.6/100.
+Do not deploy on this number.
+```
+
+That is a real scan, and it is one of ours. **96.6 is higher than a scan we
+published an A for.** The gate refused it anyway, on coverage.
+
+**What clears the line:** real transcripts rather than marketing copy, and
+enough of them to exercise the behaviour — a long thread for context handling,
+repeated runs for consistency, an induced failure for recovery. A thin sample
+does not produce a generous score; it produces `NOT TESTED`.
+
+## What it costs
+
+The free tier above is the whole battery. It is not a trial, a teaser, or a
+reduced probe set — five of those a month, no account, no key.
+
+Paid tiers exist for the two things the free tier cannot give you: a **deeper
+run with a written per-dimension report and a human pass over it**, and a
+**treatment** — we repair what the diagnosis found and re-run the same battery
+so the before-and-after is measured rather than asserted.
+
+Current prices live at **https://leevar.live/clinic**, deliberately not copied
+here. This repository is a second surface, and a number duplicated across
+surfaces drifts — our own site once said 15% while our machine-readable files
+said 10%, from exactly that.
+
 ## The six dimensions
 
 | # | Dimension | What it asks |
