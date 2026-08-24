@@ -6,9 +6,21 @@ Generated from the running definition rather than transcribed by hand. Three
 tests per dimension, judged at temperature 0 against actual output.
 
 Tests marked ⚠️ need a **verified source**: grading them requires knowing whether a
-cited source or tool result is real. In transcript mode the agent supplies its own
-evidence — it writes both the exam and the answer key — so these are excluded and
-the dimension reports reduced coverage rather than a generous score.
+cited source or tool result is real.
+
+They are excluded only when all three of these hold — `mode` is `transcript`, the
+sample carries evidence, and that evidence **contains tool output the agent wrote
+itself**. In that case the agent supplied both the exam and the answer key, so the
+dimension reports reduced coverage rather than a generous score.
+
+A transcript with no self-reported tool output is graded on all 18. Live mode
+never triggers this at all, because we call your agent and observe the result
+ourselves.
+
+(An earlier version of this paragraph said transcript mode excluded them outright.
+That was wider than the code — `pipeline.ts` requires all three conditions — and a
+reader could have concluded a transcript can never clear the coverage gate. It can:
+of 97 transcript-mode scans on our production database, 84 were graded.)
 
 ## Truthfulness & Hallucination
 
