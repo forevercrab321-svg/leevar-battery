@@ -1,0 +1,176 @@
+# Runs the LEEVAR reliability battery against an agent and turns the result into
+# a build outcome. The action is a thin wrapper: every decision — which flags are
+# valid, what each exit code means, what gets masked — lives in scan.mjs, so the
+# CLI and CI cannot drift apart.
+#
+# Before you put this on a schedule, read the caps. Without an API key this uses
+# the free tier: five scans per calendar month per email address. A workflow on
+# every push exhausts that in a week and then fails on a 429, which looks like a
+# broken build and is not one. For CI, use an API key.
+name: LEEVAR reliability battery
+description: Run the 18-test agent reliability battery and gate the build on the grade.
+author: LEEVAR
+
+branding:
+  icon: activity
+  color: yellow
+
+inputs:
+  transcript:
+    description: >-
+      Path to a conversation sample. Repeat by passing a newline-separated list.
+      A transcript containing tool output the agent wrote about itself can
+      evidence at most 12 of 18 probes, which is below the line, so the letter
+      is withheld — use live-endpoint for tool-using agents.
+    required: false
+  live-endpoint:
+    description: URL we POST each probe to. Mutually exclusive with transcript.
+    required: false
+  live-headers:
+    description: >-
+      Headers for live-endpoint, one "name=value" per line. Values are never
+      printed by the client and never reach the step summary.
+    required: false
+  name:
+    description: Agent name as it should appear on the report.
+    required: true
+  email:
+    description: >-
+      Report recipient. Required unless api-key is set: the free tier is keyed
+      on the address.
+    required: false
+  api-key:
+    description: >-
+      LEEVAR API key, from a secret. Without it the run uses the free tier and
+      its five-per-month ceiling.
+    required: false
+  fail-below:
+    description: >-
+      Fail the step unless the grade is at least this (A+ A A− B+ B C+ C D+ D F;
+      "A-" is accepted) or the composite is at least this number.
+    required: false
+  fail-on-withheld:
+    description: >-
+      Fail the step when the letter is withheld for insufficient coverage.
+      Default false, because a withheld grade is a statement about the evidence
+      you supplied, not about the agent.
+    required: false
+    default: 'false'
+  job:
+    description: Path to a Hire Check job file, {"description":"…","must_do":["…"]}.
+    required: false
+  tier:
+    description: scan or full. full needs an API key; the free tier is locked to scan.
+    required: false
+  source:
+    description: >-
+      Attribution tag. Recorded in the client's output only — the API has no
+      field for it yet, so nothing is transmitted.
+    required: false
+    default: gh-action
+  timeout:
+    description: Seconds to wait for the report before giving up. The scan keeps running.
+    required: false
+    default: '1500'
+  api-url:
+    description: API base URL override. For testing against a stub.
+    required: false
+  working-directory:
+    description: Directory the paths above are relative to.
+    required: false
+    default: '.'
+
+outputs:
+  grade:
+    description: The letter, or empty when it was withheld.
+    value: ${{ steps.battery.outputs.grade }}
+  composite:
+    description: The composite score, or empty when the grade was withheld.
+    value: ${{ steps.battery.outputs.composite }}
+  withheld:
+    description: '"true" when the letter was withheld for insufficient coverage.'
+    value: ${{ steps.battery.outputs.withheld }}
+  report-url:
+    description: Public report URL, when the server returned one.
+    value: ${{ steps.battery.outputs['report-url'] }}
+  scan-id:
+    description: The scan id — use it to resume a timed-out run.
+    value: ${{ steps.battery.outputs['scan-id'] }}
+  status:
+    description: delivered, failed, running or queued.
+    value: ${{ steps.battery.outputs.status }}
+  verdict:
+    description: One line naming what happened.
+    value: ${{ steps.battery.outputs.verdict }}
+  exit-code:
+    description: >-
+      The client's exit code, even when continue-on-error swallowed the failure:
+      0 pass · 1 below fail-below · 2 withheld · 3 refused · 4 usage ·
+      5 scan failed server-side · 6 timed out · 7 API unreachable.
+    value: ${{ steps.battery.outputs['exit-code'] }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run the battery
+      id: battery
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        LEEVAR_API_KEY: ${{ inputs.api-key }}
+        LEEVAR_API_URL: ${{ inputs.api-url }}
+        INPUT_TRANSCRIPT: ${{ inputs.transcript }}
+        INPUT_LIVE_ENDPOINT: ${{ inputs.live-endpoint }}
+        INPUT_LIVE_HEADERS: ${{ inputs.live-headers }}
+        INPUT_NAME: ${{ inputs.name }}
+        INPUT_EMAIL: ${{ inputs.email }}
+        INPUT_FAIL_BELOW: ${{ inputs.fail-below }}
+        INPUT_FAIL_ON_WITHHELD: ${{ inputs.fail-on-withheld }}
+        INPUT_JOB: ${{ inputs.job }}
+        INPUT_TIER: ${{ inputs.tier }}
+        INPUT_SOURCE: ${{ inputs.source }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -uo pipefail
+
+        # Arguments are built as an array so a value containing spaces stays one
+        # argument, and so nothing is re-parsed by the shell.
+        args=(--name "$INPUT_NAME" --source "$INPUT_SOURCE" --timeout "$INPUT_TIMEOUT")
+
+        if [ -n "$INPUT_TRANSCRIPT" ] && [ -n "$INPUT_LIVE_ENDPOINT" ]; then
+          echo "::error::transcript and live-endpoint are mutually exclusive; pass exactly one." >&2
+          exit 4
+        fi
+        if [ -z "$INPUT_TRANSCRIPT" ] && [ -z "$INPUT_LIVE_ENDPOINT" ]; then
+          echo "::error::pass transcript or live-endpoint." >&2
+          exit 4
+        fi
+
+        while IFS= read -r line; do
+          [ -n "$line" ] && args+=(--transcript "$line")
+        done <<< "$INPUT_TRANSCRIPT"
+
+        if [ -n "$INPUT_LIVE_ENDPOINT" ]; then
+          args+=(--live "$INPUT_LIVE_ENDPOINT")
+          while IFS= read -r hdr; do
+            [ -n "$hdr" ] && args+=(--header "$hdr")
+          done <<< "$INPUT_LIVE_HEADERS"
+        fi
+
+        [ -n "$INPUT_EMAIL" ]      && args+=(--email "$INPUT_EMAIL")
+        [ -n "$INPUT_FAIL_BELOW" ] && args+=(--fail-below "$INPUT_FAIL_BELOW")
+        [ -n "$INPUT_JOB" ]        && args+=(--job "$INPUT_JOB")
+        [ -n "$INPUT_TIER" ]       && args+=(--tier "$INPUT_TIER")
+        [ "$INPUT_FAIL_ON_WITHHELD" = "true" ] && args+=(--fail-on-withheld)
+
+        args+=(--summary "$GITHUB_STEP_SUMMARY" --github-output "$GITHUB_OUTPUT" --no-color)
+
+        node "$ACTION_PATH/scan.mjs" "${args[@]}"
+        code=$?
+
+        # The outputs are written by the client before it exits, so they exist
+        # for every outcome — including the failures. A caller using
+        # continue-on-error can still read exit-code and verdict and decide.
+        grep -q '^exit-code=' "$GITHUB_OUTPUT" || echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        exit $code
