@@ -19,8 +19,11 @@ ourselves.
 
 (An earlier version of this paragraph said transcript mode excluded them outright.
 That was wider than the code — `pipeline.ts` requires all three conditions — and a
-reader could have concluded a transcript can never clear the coverage gate. It can:
-of 97 transcript-mode scans on our production database, 84 were graded.)
+reader could have concluded a transcript can never clear the coverage gate. It can.
+Both outcomes are in this repo: `deno task demo` runs
+a transcript whose tool output the agent wrote itself and stops at 12/18, no
+grade; the control in `grade-battery_test.ts` runs one without that problem and
+reaches 18/18 with a letter.)
 
 ## Truthfulness & Hallucination
 

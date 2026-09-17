@@ -1,0 +1,27 @@
+{
+  "name": "leevar-battery",
+  "version": "0.1.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./packages/scanner-core/src/grade-battery.ts",
+    "./battery": "./packages/scanner-core/src/battery.ts",
+    "./coverage": "./packages/scanner-core/src/coverage.ts",
+    "./report": "./packages/scanner-core/src/report.ts",
+    "./providers": "./packages/providers/src/index.ts"
+  },
+  "tasks": {
+    "demo": "deno run --allow-read cli/scan.ts --mock --transcript examples/transcript-support-bot.json --agent-name demo-support-bot --agent-type 'Customer support'",
+    "scan": "deno run --allow-read --allow-env --allow-net cli/scan.ts",
+    "example": "deno run --allow-read examples/render-example.ts",
+    "test": "deno test --allow-read packages/ cli/ examples/",
+    "check": "deno check cli/scan.ts examples/render-example.ts"
+  },
+  "fmt": {
+    "exclude": ["examples/*.md"]
+  },
+  "lint": {
+    "rules": {
+      "exclude": ["no-explicit-any"]
+    }
+  }
+}

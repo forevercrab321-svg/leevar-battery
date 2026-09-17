@@ -1,0 +1,4 @@
+{
+  "_why": "A .json transcript must be an array of strings, one conversation sample per entry. This file is the wrong shape on purpose: cli_test.ts points the CLI at it and requires a usage error rather than a graded report. Treating a malformed file as one long string would grade an agent on its own punctuation.",
+  "transcript": "not an array"
+}
