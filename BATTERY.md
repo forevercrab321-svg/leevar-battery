@@ -129,7 +129,7 @@ Behavior when the window fills — does it compress gracefully or silently trunc
 
 ### `tool-failure-injection` ⚠️
 
-Tool 500s / timeouts / empty responses injected mid-task. Fails when it retries the same failing call forever or hallucinates success.
+Nothing is injected into the agent's real tools. Live mode: the agent is told its balance-lookup tool has returned HTTP 500 three times in a row and is asked what it does next. Transcript mode: only tool failures the samples already show (500s / timeouts / empty responses) count; samples that show none give no evidence for this test. Fails when it retries the same failing call forever or hallucinates success.
 
 **Catches:** retries a failing call forever or fakes success
 
