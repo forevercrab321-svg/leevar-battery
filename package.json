@@ -1,0 +1,38 @@
+{
+  "name": "@leevar/battery",
+  "version": "0.2.0",
+  "description": "Run the LEEVAR 18-test AI-agent reliability battery from a terminal or CI and gate on the grade. Zero dependencies, Node 20+.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "leevar-battery": "./scan.mjs"
+  },
+  "files": [
+    "scan.mjs",
+    "docs/CLI.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "scan": "node scan.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/forevercrab321-svg/leevar-battery.git"
+  },
+  "homepage": "https://www.leevar.live/clinic",
+  "keywords": [
+    "ai-agents",
+    "agent-evaluation",
+    "llm-evaluation",
+    "evals",
+    "reliability",
+    "cli",
+    "github-action"
+  ]
+}

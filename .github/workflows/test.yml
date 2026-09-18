@@ -1,0 +1,26 @@
+# Runs the client's own test-suite. Every request in it goes to a local stub
+# server; nothing here reaches the LEEVAR API or spends a free scan.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  node-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --version
+      - run: node --test
