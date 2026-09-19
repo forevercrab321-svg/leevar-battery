@@ -118,3 +118,19 @@ Deno.test("the stored row's contradiction is preserved, not quietly fixed", () =
   assertEquals(rec.stored_row.grade, "A");
   assert(rec.stored_row.composite !== null);
 });
+
+Deno.test("on the real recording, only the dimensions with all three probes evidenced wear a letter", () => {
+  // D2 and D6 kept all three probes; D1 and D4 kept two, D3 and D5 one. The
+  // report used to print "D5 · Context Window Management — 94 A" off a single
+  // probe — the same thinness the headline refused to grade.
+  const heads = render(rec).split("\n").filter((l) => l.startsWith("### D"));
+  assertEquals(heads.length, 6);
+  for (const id of ["D1", "D4"]) {
+    assert(heads.some((h) => h.startsWith(`### ${id} `) && h.endsWith("on 2 of 3 probes · no letter")), heads.join("\n"));
+  }
+  for (const id of ["D3", "D5"]) {
+    assert(heads.some((h) => h.startsWith(`### ${id} `) && h.endsWith("on 1 of 3 probes · no letter")), heads.join("\n"));
+  }
+  assert(heads.some((h) => h === "### D2 · Execution Reliability — 94.7 A"), heads.join("\n"));
+  assert(heads.some((h) => h === "### D6 · Recovery & Error Handling — 94.3 A"), heads.join("\n"));
+});
