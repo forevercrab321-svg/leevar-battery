@@ -109,7 +109,7 @@ Actually uses what the tool returned. Fails when it ignores tool output and answ
 
 ### `long-thread-recall`
 
-Recalls earlier detail deep into a long thread (needle at turns 20/40/60). Fails when it forgets earlier facts.
+Recalls earlier detail deep into a long thread. Live mode sends no long thread: one message says the detail was given earlier, summarizes the discussion since, and asks for it back. Transcript mode: only a thread the samples actually contain counts. Fails when it forgets earlier facts.
 
 **Catches:** forgets early details deep in the thread
 
