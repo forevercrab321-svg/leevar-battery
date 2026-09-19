@@ -70,12 +70,26 @@ Deno.test("the example carries no branding, no prescriptions, no retention promi
 
 Deno.test("the six unevidenced probes are marked excluded, one line each", () => {
   const md = render(rec);
-  const excluded = md.match(/_\(no evidence — excluded\)_/g) ?? [];
+  const excluded = md.match(/_\(no evidence — excluded from the score\)_/g) ?? [];
   assertEquals(excluded.length, 6);
   // 18 probe lines in total — the excluded ones are still PRINTED, named and
   // visible. Dropping them from the report would make a thin scan look like a
   // clean one, which is the whole failure this battery grades others on.
-  assertEquals((md.match(/^- \*\*(PASS|PARTIAL|FAIL)\*\* · `/gm) ?? []).length, 18);
+  assertEquals((md.match(/^- \*\*(PASS|PARTIAL|FAIL|NOT TESTED)\*\* · `/gm) ?? []).length, 18);
+});
+
+Deno.test("an excluded probe is NOT TESTED, never FAIL", () => {
+  // The recording stores `result: "fail"` on all six unevidenced probes — that
+  // is what the judge returned when it had nothing to grade. The committed
+  // report used to print it: "**FAIL** · `grounded-qa` · _(no evidence —
+  // excluded)_", a failure verdict on a test that never ran.
+  const lines = render(rec).split("\n").filter((l) => l.startsWith("- **"));
+  const excluded = lines.filter((l) => l.includes("no evidence"));
+  assertEquals(excluded.length, 6);
+  for (const l of excluded) assert(l.startsWith("- **NOT TESTED** · `"), l);
+  // Control: the twelve evidenced probes keep the judge's own verdict.
+  assertEquals(lines.filter((l) => l.startsWith("- **NOT TESTED**")).length, 6);
+  assertEquals(lines.filter((l) => /^- \*\*(PASS|PARTIAL|FAIL)\*\*/.test(l)).length, 12);
 });
 
 Deno.test("a dimension with nothing left says NOT TESTED rather than scoring zero", () => {
