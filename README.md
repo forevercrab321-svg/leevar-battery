@@ -40,12 +40,14 @@ We are not grading this agent. Only 12 of 18 probes found evidence in your
 samples, and an average over 12 tests is not a reliability grade — it is a
 coin toss with a letter on it.
 
-For reference only, over the 12 evidenced tests: 96.6/100.
+For reference only, over the 12 evidenced tests: 96.2/100.
 Do not deploy on this number.
 ```
 
-That is a real scan, and it is one of ours. **96.6 is higher than a scan we
-published an A for.** The gate refused it anyway, on coverage.
+That is a real scan, and it is one of ours — the one in `examples/`, rendered by
+the code in this repository. **96.2 is higher than a scan we published an A
+for.** The gate refused it anyway, on coverage. (The report on the day said 96.6;
+[why the two differ](#one-real-report-and-what-it-refused-to-do).)
 
 **What clears the line:** real transcripts rather than marketing copy, and
 enough of them to exercise the behaviour — a long thread for context handling,
@@ -162,7 +164,7 @@ Twelve of eighteen is 0.6667 — under the line by three thousandths. The
 reference average is high enough to have been an A. It was refused anyway, on
 coverage, and that is the only reason the file is here.
 
-**Why 96.2 here and 96.6 further up.** Both come from those same twelve
+**Why the report on the day said 96.6.** Both numbers come from those same twelve
 verdicts. 96.6 is the mean over the six *dimensions*, which is what the report
 said on the day; two of those dimensions rested on a single surviving probe
 each, and each of those single probes therefore carried a full sixth of the

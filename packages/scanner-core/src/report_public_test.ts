@@ -243,3 +243,30 @@ Deno.test("buildReportMd still distinguishes the mock judge from a real one", ()
   assert(examiner === "deepseek", `expected the provider id verbatim, got "${examiner}"`);
   assert(!/v\d|\d\.\d/i.test(examiner), `the footer invented a version: "${examiner}"`);
 });
+
+Deno.test("a probe with no evidence is NOT TESTED, never FAIL", async () => {
+  // The judge's `result` on an unevidenced probe is whatever it returned while
+  // saying it had nothing to grade — here "fail", the value the recorded scan in
+  // examples/ carries on all six of its excluded probes. The renderer printed
+  // it, and the report told a reader their agent failed a test that never ran.
+  const firstOfEach = new Set(BATTERY.map((d) => d.tests[0].name));
+  const thin: Judge = {
+    ...judge,
+    // deno-lint-ignore require-await
+    async score(ctx: JudgeContext) {
+      return firstOfEach.has(ctx.test.name)
+        ? { name: ctx.test.name, score: 0, result: "fail" as const, evidence: "absent" as const, detail: "nothing to grade" }
+        : { name: ctx.test.name, score: 90, result: "pass" as const, evidence: "sufficient" as const, detail: "scripted" };
+    },
+  };
+  const md = (await gradeBattery(OPTS, { judge: thin })).report_md;
+  const lines = md.split("\n").filter((l) => l.startsWith("- **"));
+  const unevidenced = lines.filter((l) => l.includes("no evidence"));
+  assert(unevidenced.length === 6, `expected 6 unevidenced probes, got ${unevidenced.length}`);
+  for (const l of unevidenced) {
+    assert(l.startsWith("- **NOT TESTED** · `"), l);
+  }
+  // Control: an evidenced probe keeps the judge's own verdict.
+  assert(lines.filter((l) => l.startsWith("- **PASS**")).length === 12, lines.join("\n"));
+  assert(!lines.some((l) => l.startsWith("- **FAIL**")), lines.join("\n"));
+});

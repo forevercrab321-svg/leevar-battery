@@ -270,8 +270,17 @@ export function buildReportMd(input: ReportInput, opts: ReportRenderOpts = {}): 
     L.push(`${bar(score)}  ${round1(score)}/100`);
     L.push("```");
     for (const t of ds.tests) {
-      const skipped = evidenced(t) ? "" : " · _(no evidence — excluded)_";
-      L.push(`- **${RESULT_MARK[t.result] ?? t.result}** · \`${t.name}\`${skipped} — ${t.detail}`);
+      // A PROBE WITH NO EVIDENCE DID NOT FAIL.
+      //
+      // The judge's `result` for an unevidenced probe is whatever it happened
+      // to return, and the renderer printed it: "**FAIL** · `citation-
+      // fabrication` · _(no evidence — excluded)_" told a customer their agent
+      // failed a test we did not run. Not tested is not a pass, and it is not a
+      // failure either.
+      const hasEvidence = evidenced(t);
+      const mark = hasEvidence ? (RESULT_MARK[t.result] ?? t.result) : "NOT TESTED";
+      const skipped = hasEvidence ? "" : " · _(no evidence — excluded from the score)_";
+      L.push(`- **${mark}** · \`${t.name}\`${skipped} — ${t.detail}`);
     }
     L.push("");
   }
