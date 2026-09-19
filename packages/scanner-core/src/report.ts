@@ -262,13 +262,47 @@ export function buildReportMd(input: ReportInput, opts: ReportRenderOpts = {}): 
       continue;
     }
     const score = ds.score;
+    // A DIMENSION'S LETTER NEEDS THE SAME EVIDENCE THE COMPOSITE'S DOES.
+    //
+    // `tested` is true as soon as ONE probe of three survives, and the letter
+    // was printed off the mean of whatever survived. On 2026-09-17 a two-line
+    // greeting was delivered as "D5 · Context Window Management — 74.3 C+" on
+    // one evidenced probe, inside a report whose headline said no grade was
+    // issued. The composite applies GRADED_MIN_RATIO; so does this now.
+    const probes = ds.tests ?? [];
+    const evCount = probes.filter(evidenced).length;
+    // ONE CONSTANT, ONE ENCODING (owner decision, 2026-09-17).
+    //
+    // This first shipped as exact two-thirds arithmetic (`ev * 3 >= n * 2`),
+    // which over three probes lets 2 of 3 earn a letter while the composite's
+    // 0.67 withholds one at 12/18 — the same question answered two ways inside
+    // the file family written to stop exactly that drift. Making the constant
+    // exact instead would have flipped SCN-2026-5643 from PARTIAL to graded and
+    // rewritten what we have published about it, so the owner chose the
+    // stricter reading in both places: GRADED_MIN_RATIO, everywhere.
+    //
+    // Over three probes 0.67 means all three. A dimension missing one probe
+    // shows its number without a letter, which is the honest shape anyway: the
+    // mean of two probes is a reading, and it was being printed as a grade.
+    const letterEarned = probes.length > 0 &&
+      evCount / probes.length >= GRADED_MIN_RATIO;
     L.push(
-      `### ${d.id} · ${d.name} — ${round1(score)} ${gradeLetter(score)}`,
+      letterEarned
+        ? `### ${d.id} · ${d.name} — ${round1(score)} ${gradeLetter(score)}`
+        : `### ${d.id} · ${d.name} — ${round1(score)} on ${evCount} of ${probes.length} probes · no letter`,
     );
     L.push("");
     L.push("```");
     L.push(`${bar(score)}  ${round1(score)}/100`);
     L.push("```");
+    if (!letterEarned) {
+      L.push(
+        `_A letter for this dimension needs evidence for every probe — the same line the ` +
+          `composite is held to. This number is the mean of the ${evCount} that had evidence: ` +
+          `a reading, not a grade._`,
+      );
+      L.push("");
+    }
     for (const t of ds.tests) {
       // A PROBE WITH NO EVIDENCE DID NOT FAIL.
       //

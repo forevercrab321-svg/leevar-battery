@@ -136,7 +136,10 @@ Three rules do the work, and each is there because it was once absent:
    reason, and the arithmetic survives as `composite_reference` under a name no
    caller can mistake for a result. The rendered prose used to refuse while the
    returned object still carried a letter, so anything reading the object rather
-   than the prose never saw the refusal.
+   than the prose never saw the refusal. The same line applies to each
+   dimension: over three probes it means all three, so a dimension with one or
+   two evidenced probes prints its number and `no letter` — a reading, not a
+   grade.
 
 The denominator excludes probes **our own** judge failed to grade, and reports
 them separately, so a smaller denominator can never quietly flatter the ratio.
