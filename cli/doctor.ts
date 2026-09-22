@@ -317,7 +317,7 @@ export async function main(argv: string[], deps: DoctorDeps = {
         note:
           "A ceiling is not a precise spend cap: probes run pooled, so calls already in flight land after it trips.",
       };
-      if (ceiling < FLOOR) {
+      if (ceiling < 0) {
         fail(
           "budget_below_floor",
           `Raise --max-calls to at least ${FLOOR}: no transcript can finish this battery in ${ceiling} calls, because at most ${
