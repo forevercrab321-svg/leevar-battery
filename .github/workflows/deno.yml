@@ -1,0 +1,58 @@
+# The Deno scanner's own checks.
+#
+# Deliberately a SEPARATE file from the `tests` workflow in PR #2: that branch
+# has no merge base with main and would delete cli/, packages/ and deno.json,
+# and its job runs `node --test` only — zero deno commands — so it would never
+# execute anything in this PR. Two files cannot conflict on one path.
+#
+# Nothing here reaches a provider: no key is available to the runner, the demo
+# uses the offline mock judge, and the doctor step is run with --deny-net.
+name: deno
+
+on:
+  # Every branch, not just main: a push to a branch with no PR yet used to run
+  # nothing, so a broken commit could sit green-looking until someone opened
+  # one. Found while proving this workflow fails for the right reason — the
+  # proof needed a throwaway PR because the branch push alone triggered nothing.
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  deno-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno --version
+
+      # The suite, including cli/doctor_test.ts.
+      - name: test
+        run: deno task test
+
+      # Type check, including cli/doctor.ts.
+      - name: check
+        run: deno task check
+
+      # The offline contract, enforced by the permission rather than asserted
+      # by the program: no --allow-net anywhere on this line.
+      - name: doctor is offline and refuses a missing transcript
+        run: |
+          deno run --deny-net --allow-read cli/doctor.ts \
+            --mock --transcript examples/transcript-support-bot.json
+          if deno run --deny-net --allow-read cli/doctor.ts \
+               --mock --transcript ./does-not-exist.json; then
+            echo "::error::doctor exited 0 on a missing transcript"
+            exit 1
+          fi
+
+      # The grading contract this PR must not move.
+      - name: demo still withholds the grade
+        run: |
+          deno task demo 2>&1 | tee /tmp/demo.txt
+          grep -q "No grade issued: 12/18" /tmp/demo.txt \
+            || { echo "::error::the demo's coverage line changed"; exit 1; }

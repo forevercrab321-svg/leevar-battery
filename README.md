@@ -81,6 +81,23 @@ reproduced offline, in under a second, with nothing to configure:
 
 Then point it at a real model and a real transcript:
 
+Check local readiness first with `deno task doctor --transcript ./samples.json
+--provider anthropic` (or `--mock`). This prints JSON with input validity,
+provider/model, a **redacted** endpoint for logs, the call budget and credential
+presence; exits 0 for `locally_ready`, 2 for blocked configuration. Authentication and connectivity
+remain **unverified**: doctor sends nothing and cannot certify a key or model.
+It accepts `--model`, `--base-url` and `--max-calls`, never raw keys. The task
+reads only the selected provider's conventional key variable, with file read
+permission and no network permission. Text files are one sample; `.json` files
+must contain a nonempty array of strings. Diagnostic URLs must be HTTP(S) and carry no
+userinfo; a query string is fine, and required by some endpoints (Azure's
+`?api-version=`), so its values are masked in the output rather than the URL
+being refused. The endpoint it prints is redacted for logging; where the URL carried a
+secret it is no longer a working endpoint. This check produces no reliability grade, and it does not tell you
+whether the scan will succeed — only that the locally checkable prerequisites
+passed.
+See [SETUP.md](./SETUP.md) for the first-scan recipe.
+
 ```bash
 # see where your transcript would go, and what it could cost, before sending it
 deno task scan --transcript ./samples.json --provider anthropic --dry-run
