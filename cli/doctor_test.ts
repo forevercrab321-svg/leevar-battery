@@ -167,7 +167,7 @@ Deno.test("doctor describes explicit model endpoint and ceiling without sending"
     "--base-url",
     "http://localhost:8000/v1/chat/completions",
     "--max-calls",
-    "7",
+    "18",
   ]);
   assertEquals(r.code, 0);
   assertEquals(r.report.configuration.model, "chosen-model");
@@ -175,6 +175,76 @@ Deno.test("doctor describes explicit model endpoint and ceiling without sending"
     r.report.configuration.endpoint,
     "http://localhost:8000/v1/chat/completions",
   );
-  assertEquals(r.report.configuration.budget.ceiling, 7);
+  assertEquals(r.report.configuration.budget.ceiling, 18);
   assertEquals(r.envReads, ["OPENAI_API_KEY"]);
+});
+
+// This case used to assert code 0 for --max-calls 7, which locked in the one
+// outcome this command exists to prevent: a ceiling under the probe count
+// spends that many real provider calls and then dies on a fatal call_ceiling
+// with no report. Proven on a stubbed judge: 17 throws after 17 calls, 18
+// completes. Found in independent review of the first draft of this PR.
+Deno.test("a ceiling under the battery size is blocked, not merely described", async () => {
+  for (const ceiling of ["1", "7", "17"]) {
+    const r = await run([...base, "--max-calls", ceiling]);
+    assertEquals(r.code, 2, `--max-calls ${ceiling} must block`);
+    assertEquals(r.report.status, "blocked");
+    assert(
+      r.report.errors.some((e: { code: string }) =>
+        e.code === "budget_below_battery"
+      ),
+      `--max-calls ${ceiling} must name budget_below_battery`,
+    );
+  }
+  // The boundary is the probe count itself, not an arbitrary number.
+  const ok = await run([...base, "--max-calls", "18"]);
+  assertEquals(ok.code, 0);
+  assertEquals(ok.report.configuration.budget.ceiling, 18);
+  assertEquals(ok.report.configuration.budget.normal, 18);
+});
+
+Deno.test("a key hidden in a base-url path segment does not reach stdout", async () => {
+  // userinfo, query and fragment are refused outright; a path segment is not,
+  // so the endpoint goes through the same redactor the provider errors use.
+  const r = await run([
+    "--transcript",
+    `/private/${SECRET}.json`,
+    "--provider",
+    "openai-compatible",
+    "--base-url",
+    "https://example.com/v1/sk-LEAKEDSECRET1234/chat",
+    "--max-calls",
+    "18",
+  ]);
+  assert(
+    !JSON.stringify(r.report).includes("sk-LEAKEDSECRET1234"),
+    "a key in the endpoint path reached the diagnostic JSON",
+  );
+  assert(
+    r.report.configuration.endpoint.includes("[REDACTED]"),
+    "the endpoint was not redacted",
+  );
+});
+
+Deno.test("--help answers instead of rejecting the option", async () => {
+  // cli/scan.ts prints usage for -h. An agent exploring this CLI tries --help
+  // first; "unsupported option" with exit 2 teaches it nothing.
+  for (const flag of ["--help", "-h"]) {
+    let out = "";
+    const code = await main([flag], {
+      readTextFile: () => Promise.reject(new Error("must not read")),
+      readEnv: () => {
+        throw new Error("must not read env");
+      },
+      write: (t) => {
+        out = t;
+      },
+    });
+    assertEquals(code, 0, `${flag} must exit 0`);
+    assert(out.includes("--transcript"), `${flag} must list the options`);
+    assert(
+      !out.includes('locally_ready":'),
+      `${flag} must not emit a diagnostic`,
+    );
+  }
 });

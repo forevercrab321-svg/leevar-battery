@@ -13,10 +13,10 @@ From this repository:
 deno task demo
 ```
 
-This uses a deterministic mock judge, not a real assessment of your agent.
-The shipped example produces PARTIAL, with 12 of 18 probes evidenced and no
-overall grade. That is an intentional evidence boundary, not an installation
-failure. Do not keep rerunning it to obtain a passing grade.
+This uses a deterministic mock judge, not a real assessment of your agent. The
+shipped example produces PARTIAL, with 12 of 18 probes evidenced and no overall
+grade. That is an intentional evidence boundary, not an installation failure. Do
+not keep rerunning it to obtain a passing grade.
 
 ## 2. Check your input locally
 
@@ -39,15 +39,15 @@ that variable in your local environment; do not paste the key into a chat,
 report, commit, or command-line argument. The doctor command has no network
 permission and does not authenticate the key or inspect your provider balance.
 
-| Provider | Environment variable |
-| --- | --- |
-| `openai` | `OPENAI_API_KEY` |
-| `anthropic` | `ANTHROPIC_API_KEY` |
-| `gemini` | `GEMINI_API_KEY` |
-| `deepseek` | `DEEPSEEK_API_KEY` |
-| `openrouter` | `OPENROUTER_API_KEY` |
-| `openai-compatible` | `LLM_API_KEY` |
-| `ollama` / `--mock` | No key required |
+| Provider            | Environment variable |
+| ------------------- | -------------------- |
+| `openai`            | `OPENAI_API_KEY`     |
+| `anthropic`         | `ANTHROPIC_API_KEY`  |
+| `gemini`            | `GEMINI_API_KEY`     |
+| `deepseek`          | `DEEPSEEK_API_KEY`   |
+| `openrouter`        | `OPENROUTER_API_KEY` |
+| `openai-compatible` | `LLM_API_KEY`        |
+| `ollama` / `--mock` | No key required      |
 
 - `blocked`: fix the named input/configuration problem before continuing.
 - `locally_ready`: the checked local prerequisites passed. Provider
@@ -62,9 +62,9 @@ about to run, so anything you typed on the command line is already in your
 terminal and your shell history before doctor starts. Doctor refuses a
 `--base-url` carrying userinfo (`invalid_base_url`, exit 2), but that refusal
 happens after the echo. Keep credentials in environment variables, and if one
-did reach a command line, treat it as exposed and rotate it.
-`--dry-run` on the existing scan command is a configuration preview, not a
-replacement for the doctor input/key-presence check.
+did reach a command line, treat it as exposed and rotate it. `--dry-run` on the
+existing scan command is a configuration preview, not a replacement for the
+doctor input/key-presence check.
 
 ## 3. Run only when the destination and cost boundary are acceptable
 
@@ -100,8 +100,8 @@ verify those.
 
 If a process or connection fails, inspect the error and any existing output
 before rerunning. The present CLI does not offer durable resume or provider-side
-idempotency: another scan may repeat paid model calls. Do not retry automatically
-on the assumption that a timeout means nothing ran.
+idempotency: another scan may repeat paid model calls. Do not retry
+automatically on the assumption that a timeout means nothing ran.
 
 The existing provider adapter already retries some transient failures once
 inside a scan, subject to its call ceiling. This warning concerns starting an
