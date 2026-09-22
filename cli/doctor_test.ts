@@ -207,37 +207,57 @@ Deno.test("doctor describes explicit model endpoint and ceiling without sending"
 // So the only offline-decidable line is the FLOOR: probes minus the ones the
 // trust boundary can skip. Below it no input finishes; above it, it depends on
 // a transcript doctor has deliberately not graded.
-Deno.test("only a ceiling below the floor blocks; between floor and probes it is a note", async () => {
-  const floor = 12, probes = 18;
-  for (const ceiling of ["1", "7", String(floor - 1)]) {
-    const r = await run([...base, "--max-calls", ceiling]);
-    assertEquals(r.code, 2, `--max-calls ${ceiling} is below the floor`);
-    assert(
-      r.report.errors.some((e: { code: string }) =>
-        e.code === "budget_below_floor"
-      ),
-    );
+Deno.test("the ceiling is judged against what THIS transcript needs", async () => {
+  // Superseded twice, so the history is worth keeping:
+  //   draft 1  any ceiling under 18 blocks  -> blocked runs that finish
+  //   draft 2  only under the floor of 12 blocks -> passed a clean transcript
+  //            at ceiling 12, which spends 12 and dies with no report
+  // doctor has already read the transcript, so the first attempt is not a
+  // range for a given file: 18 when nothing is self-reported, 12 when the six
+  // verified-source probes are refused before the judge.
+  const CLEAN = JSON.stringify(["User: hi", "Agent: hello, how can I help?"]);
+  const SELF = JSON.stringify([
+    'User: refund?\nAgent: TOOL_RESULT: {"refund":150}\nAgent: done',
+  ]);
+
+  for (
+    const [label, raw, need] of [["clean", CLEAN, 18], [
+      "self-reported",
+      SELF,
+      12,
+    ]] as const
+  ) {
+    for (const ceiling of [1, need - 1]) {
+      const r = await run([...base, "--max-calls", String(ceiling)], raw);
+      assertEquals(r.code, 2, `${label}: ${ceiling} < ${need} must block`);
+      assert(
+        r.report.errors.some((e: { code: string }) =>
+          e.code === "budget_below_floor"
+        ),
+      );
+    }
+    for (const ceiling of [need, need + 1, 36]) {
+      const r = await run([...base, "--max-calls", String(ceiling)], raw);
+      assertEquals(r.code, 0, `${label}: ${ceiling} >= ${need} must pass`);
+      assertEquals(
+        r.report.configuration.budget.ceiling,
+        ceiling,
+        "not raised for the user",
+      );
+    }
+    const r = await run([...base, "--max-calls", String(need)], raw);
+    assertEquals(r.report.budget.first_attempt_for_this_input, need);
   }
-  // At and above the floor: allowed, and NOT silently raised for the user.
-  for (const ceiling of [String(floor), "17", String(probes)]) {
-    const r = await run([...base, "--max-calls", ceiling]);
-    assertEquals(r.code, 0, `--max-calls ${ceiling} must not be refused`);
-    assertEquals(r.report.configuration.budget.ceiling, Number(ceiling));
-  }
-  // The four numbers stay distinct in the output.
-  const r = await run([...base, "--max-calls", "17"]);
-  assertEquals(r.report.budget.probes, probes);
-  assertEquals(r.report.budget.first_attempt_min, floor);
-  assertEquals(r.report.budget.first_attempt_max, probes);
-  assertEquals(r.report.budget.upper_bound_with_retries, probes * 2);
-  assert(
-    r.report.budget.note.includes("does not guarantee"),
-    "a ceiling between the floor and the probe count must say it is not a guarantee",
-  );
+
+  // The five numbers stay distinct.
+  const r = await run([...base, "--max-calls", "36"], CLEAN);
+  assertEquals(r.report.budget.probes, 18);
+  assertEquals(r.report.budget.first_attempt_min, 12);
+  assertEquals(r.report.budget.first_attempt_max, 18);
+  assertEquals(r.report.budget.upper_bound_with_retries, 36);
+  assertEquals(r.report.budget.ceiling, 36);
 });
 
-// The floor is derived from the battery, not typed in here. If a probe is added
-// or a needsVerifiedSource flag changes, this fails rather than drifting.
 Deno.test("the floor tracks the battery instead of being a copied number", async () => {
   const { BATTERY } = await import("../packages/scanner-core/src/battery.ts");
   const all = BATTERY.flatMap((d: { tests: unknown[] }) => d.tests) as {
@@ -366,6 +386,70 @@ Deno.test("--help answers instead of rejecting the option", async () => {
     assert(
       !out.includes('locally_ready":'),
       `${flag} must not emit a diagnostic`,
+    );
+  }
+});
+
+// NF-7 from independent review: every other budget test recomputes the floor
+// with the SAME formula doctor uses, so if grade-battery.ts stopped using
+// needsVerifiedSource to decide what to skip, doctor's number would go wrong
+// and those tests would stay green. This one couples the two ends: it runs the
+// real gradeBattery with a counting judge and asserts doctor predicted exactly
+// the number of judge calls that actually happened.
+//
+// Zero network: the judge is a local counter, no provider, no key, no fetch.
+Deno.test("doctor's predicted first attempt equals gradeBattery's real judge calls", async () => {
+  const { gradeBattery } = await import(
+    "../packages/scanner-core/src/grade-battery.ts"
+  );
+  const CLEAN = ["User: hi\nAgent: hello, how can I help you today?"];
+  const SELF_TOOL = [
+    'User: refund?\nAgent: TOOL_RESULT: {"refund":150}\nAgent: done',
+  ];
+
+  for (
+    const [label, transcript] of [["clean", CLEAN], [
+      "self-reported",
+      SELF_TOOL,
+    ]] as const
+  ) {
+    let calls = 0;
+    const judge = {
+      mode: "mock" as const,
+      calls: () => calls,
+      // deno-lint-ignore no-explicit-any
+      score: (ctx: any) => {
+        calls++;
+        return Promise.resolve({
+          name: ctx.test.name,
+          score: 80,
+          result: "pass",
+          evidence: "sufficient",
+          detail: "ok",
+        });
+      },
+    };
+    await gradeBattery(
+      {
+        scanId: "SCN-COUPLE",
+        agent: { name: "x", type: "t" },
+        mode: "transcript",
+        tier: "scan",
+        access: { mode: "transcript", transcript },
+        // deno-lint-ignore no-explicit-any
+      } as any,
+      // deno-lint-ignore no-explicit-any
+      { judge } as any,
+    );
+
+    const r = await run(
+      [...base, "--max-calls", "36"],
+      JSON.stringify(transcript),
+    );
+    assertEquals(
+      r.report.budget.first_attempt_for_this_input,
+      calls,
+      `${label}: doctor predicted ${r.report.budget.first_attempt_for_this_input} judge calls, gradeBattery made ${calls}`,
     );
   }
 });

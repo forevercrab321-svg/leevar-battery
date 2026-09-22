@@ -5,7 +5,10 @@ import {
   PROVIDER_IDS,
   redact,
 } from "../packages/providers/src/index.ts";
-import { transcriptEvidence } from "../packages/scanner-core/src/probe.ts";
+import {
+  hasSelfReportedToolOutput,
+  transcriptEvidence,
+} from "../packages/scanner-core/src/probe.ts";
 import { BATTERY } from "../packages/scanner-core/src/battery.ts";
 
 // Derived from the battery itself, never copied as a number here, so this
@@ -61,9 +64,13 @@ function redactedEndpoint(raw: string): string {
     u.username = "[REDACTED]";
     u.password = "";
   }
-  for (const k of [...u.searchParams.keys()]) {
-    if (u.searchParams.get(k)) u.searchParams.set(k, "[REDACTED]");
-  }
+  // Rebuilt rather than set() in place: a parameter with NO value (`?<token>`)
+  // parses as a key with an empty value, and masking only values would print
+  // it verbatim — which is how a bare token in a query slipped through.
+  const masked = [...u.searchParams.entries()].map(([k, v]) =>
+    v ? `${encodeURIComponent(k)}=[REDACTED]` : "[REDACTED]"
+  );
+  u.search = masked.length ? `?${masked.join("&")}` : "";
   if (u.hash) u.hash = "[REDACTED]";
   // URL.toString() percent-encodes the brackets; undo that for the marker only,
   // so a log line reads ?api-version=[REDACTED] rather than %5BREDACTED%5D.
@@ -164,6 +171,8 @@ export async function main(argv: string[], deps: DoctorDeps = {
     }
     args.set(flag, value);
   }
+  // null until the transcript has been read and classified.
+  let selfReported: boolean | null = null;
   const path = args.get("--transcript");
   const provider = args.get("--provider");
   const mock = args.has("--mock");
@@ -183,7 +192,7 @@ export async function main(argv: string[], deps: DoctorDeps = {
     );
   }
   if (
-    mock && ["--model", "--base-url"].some((k) => args.has(k))
+    mock && ["--model", "--base-url", "--max-calls"].some((k) => args.has(k))
   ) fail("mock_options", "Remove provider-specific options when using --mock.");
   const maxCalls = args.has("--max-calls")
     ? Number(args.get("--max-calls"))
@@ -243,7 +252,12 @@ export async function main(argv: string[], deps: DoctorDeps = {
         );
       } else {
         try {
-          transcriptEvidence({ transcript: samples });
+          // The same call gradeBattery makes, on the same evidence, from the
+          // same module. Not a second implementation of anything: it decides
+          // whether the six verified-source probes will be refused BEFORE the
+          // judge, which turns the 12..18 range into one number for THIS file.
+          const evidence = transcriptEvidence({ transcript: samples });
+          selfReported = hasSelfReportedToolOutput(evidence);
           report.input.state = "valid";
           report.input.nonempty_samples = samples.filter((s: string) =>
             s.trim()
@@ -289,6 +303,9 @@ export async function main(argv: string[], deps: DoctorDeps = {
       const { endpoint: _actual, ...rest } = described;
       report.configuration = {
         ...rest,
+        // --model sits next to --base-url and --api-key on the command line,
+        // and the endpoint is redacted for exactly that reason. One standard.
+        model: redact(rest.model),
         endpoint_redacted: redactedEndpoint(described.endpoint),
       };
       // Four different numbers, kept apart because conflating them is how a
@@ -308,25 +325,46 @@ export async function main(argv: string[], deps: DoctorDeps = {
       // transcript this command has deliberately not graded, so it is a note
       // and not a refusal — doctor does not raise anyone's budget for them.
       const ceiling = report.configuration!.budget.ceiling;
+      // We read the transcript, so for THIS file the first attempt is not a
+      // range. Saying "it depends on your transcript" while holding the
+      // transcript would pass a run that is certain to spend the ceiling and
+      // stop with no report — the one loss this command exists to prevent.
+      const expected = selfReported === null
+        ? null
+        : selfReported
+        ? FLOOR
+        : PROBES;
       report.budget = {
         probes: PROBES,
         first_attempt_min: FLOOR,
         first_attempt_max: PROBES,
+        first_attempt_for_this_input: expected,
         upper_bound_with_retries: PROBES * 2,
         ceiling,
         note:
-          "A ceiling is not a precise spend cap: probes run pooled, so calls already in flight land after it trips.",
+          "A ceiling is not a spend cap you get refunded against: if the run stops at the ceiling it stops with no report, and you have paid for the calls already made.",
       };
-      if (ceiling < FLOOR) {
+      const need = expected ?? FLOOR;
+      if (ceiling < need) {
         fail(
           "budget_below_floor",
-          `Raise --max-calls to at least ${FLOOR}: no transcript can finish this battery in ${ceiling} calls, because at most ${
-            PROBES - FLOOR
-          } of the ${PROBES} probes can be skipped before the judge. The run would spend ${ceiling} provider calls and stop with no report.`,
+          expected === null
+            ? `Raise --max-calls to at least ${FLOOR}: at most ${
+              PROBES - FLOOR
+            } of the ${PROBES} probes can ever be skipped before the judge, so ${ceiling} cannot finish any run.`
+            : `Raise --max-calls to at least ${need}: this transcript needs ${need} judge calls on the first attempt${
+              selfReported
+                ? ` (${
+                  PROBES - FLOOR
+                } probes are refused before the judge because its tool output is self-reported)`
+                : ""
+            }, so ${ceiling} would spend ${ceiling} provider calls and stop with no report.`,
         );
-      } else if (ceiling < PROBES) {
+      } else if (expected !== null && ceiling < PROBES * 2) {
         report.budget.note +=
-          ` ${ceiling} is above the ${FLOOR}-call floor but below the ${PROBES} probes: it finishes only if the trust boundary excludes enough probes, which depends on your transcript. Even ${PROBES} does not guarantee completion, because a retry spends the ceiling too.`;
+          ` ${ceiling} covers this transcript's ${need} first-attempt calls, but a retry spends the ceiling too (the provider retries once on a bad or transient reply), so completion is still not guaranteed below ${
+            PROBES * 2
+          }.`;
       }
       if (!report.configuration!.needsKey) {
         report.credential.state = "not_required";

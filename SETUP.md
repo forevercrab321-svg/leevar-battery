@@ -72,23 +72,36 @@ Measured on a stubbed judge with no network: a clean transcript spends 18 calls,
 a transcript carrying self-reported tool output spends 12 and completes at
 12/18.
 
-So doctor blocks only what no input can survive — a ceiling below **12**.
-Between 12 and 18 it says so and lets you proceed, because whether it finishes
-depends on a transcript doctor has deliberately not graded. **18 is not a
-guarantee either:** a retry spends the ceiling too. And a ceiling is not a
-precise spend cap — probes run pooled, so calls already in flight land after it
-trips.
+doctor has already read your transcript, so it does not leave this as a range:
+it runs the same `hasSelfReportedToolOutput` check `gradeBattery` runs, reports
+`first_attempt_for_this_input`, and blocks a ceiling below **that** number. A
+clean transcript at `--max-calls 12` is refused, because it would spend 12 calls
+and stop.
+
+**Covering the first attempt is still not a guarantee:** the provider retries
+once on a bad or transient reply, and the ceiling counts sends, so a retry
+spends it too.
+
+A correction to an earlier version of this page: it said a ceiling can be
+overspent because pooled calls land after it trips. Measured at three
+concurrency delays, that is **not** true — the check and the increment are
+adjacent and synchronous, and the send count never exceeded the ceiling. What is
+true is worse in a different way: **a run that stops at the ceiling stops with
+no report, and you have already paid for the calls it made.**
 
 The diagnostic is JSON. It does not include your transcript, and the endpoint it
-prints is a **redacted display** (`endpoint_redacted`), not a usable URL: query
-values, userinfo and fragments are masked, and provider key shapes in the path
-are removed. Do not copy it back into a config.
+prints is a **redacted display** (`endpoint_redacted`): query parameters,
+userinfo and fragments are masked, and provider key shapes in the path are
+removed. When the URL held nothing secret this string is byte-identical to the
+real one — it is a display field, not proof of scrubbing. Read it; do not copy
+it into a config, because for a URL that DID hold a secret it is no longer a
+working endpoint.
 
 **One limit, stated rather than glossed:** path redaction is shape-based. A
 credential in a path segment with no recognisable prefix — an opaque token — is
 _not_ detected, and a test pins that so nobody upgrades this into "all URL
-secrets are removed". Query values are masked positionally and so do not depend
-on shape.
+secrets are removed". Query parameters are masked positionally, including one
+carrying no value at all (`?<token>`), so that part does not depend on shape.
 
 A query string is accepted. An earlier version refused every URL with one, which
 blocked Azure OpenAI endpoints — they require `?api-version=`. Note that

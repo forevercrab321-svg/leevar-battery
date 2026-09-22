@@ -92,8 +92,8 @@ permission and no network permission. Text files are one sample; `.json` files
 must contain a nonempty array of strings. Diagnostic URLs must be HTTP(S) and carry no
 userinfo; a query string is fine, and required by some endpoints (Azure's
 `?api-version=`), so its values are masked in the output rather than the URL
-being refused. The endpoint it prints is redacted for logging and is not a
-usable URL. This check produces no reliability grade, and it does not tell you
+being refused. The endpoint it prints is redacted for logging; where the URL carried a
+secret it is no longer a working endpoint. This check produces no reliability grade, and it does not tell you
 whether the scan will succeed — only that the locally checkable prerequisites
 passed.
 See [SETUP.md](./SETUP.md) for the first-scan recipe.
