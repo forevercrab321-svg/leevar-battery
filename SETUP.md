@@ -54,8 +54,46 @@ permission and does not authenticate the key or inspect your provider balance.
   authentication, endpoint availability, model availability and quota are
   **unverified**. No scan has run and no grade exists yet.
 
-The diagnostic is JSON. It does not include your transcript or API key —
-measured on both of its own streams: stdout and stderr.
+### What `--max-calls` is checked against
+
+Four numbers, kept apart because they are not the same number:
+
+|               |                                                                                                |
+| ------------- | ---------------------------------------------------------------------------------------------- |
+| probes        | 18, fixed by the battery                                                                       |
+| first attempt | **12–18**, depending on your transcript                                                        |
+| with retries  | up to 36 — the provider retries once on a bad or transient reply, and the ceiling counts sends |
+| ceiling       | what you set                                                                                   |
+
+The first attempt is a range because `gradeBattery` answers some probes _without
+calling the judge_: when a transcript's tool output was written by the agent
+under test, the probes that need a verified source are refused upstream.
+Measured on a stubbed judge with no network: a clean transcript spends 18 calls,
+a transcript carrying self-reported tool output spends 12 and completes at
+12/18.
+
+So doctor blocks only what no input can survive — a ceiling below **12**.
+Between 12 and 18 it says so and lets you proceed, because whether it finishes
+depends on a transcript doctor has deliberately not graded. **18 is not a
+guarantee either:** a retry spends the ceiling too. And a ceiling is not a
+precise spend cap — probes run pooled, so calls already in flight land after it
+trips.
+
+The diagnostic is JSON. It does not include your transcript, and the endpoint it
+prints is a **redacted display** (`endpoint_redacted`), not a usable URL: query
+values, userinfo and fragments are masked, and provider key shapes in the path
+are removed. Do not copy it back into a config.
+
+**One limit, stated rather than glossed:** path redaction is shape-based. A
+credential in a path segment with no recognisable prefix — an opaque token — is
+_not_ detected, and a test pins that so nobody upgrades this into "all URL
+secrets are removed". Query values are masked positionally and so do not depend
+on shape.
+
+A query string is accepted. An earlier version refused every URL with one, which
+blocked Azure OpenAI endpoints — they require `?api-version=`. Note that
+accepting the URL says nothing about whether that endpoint authenticates or
+answers: doctor sends nothing, so Azure compatibility is **UNKNOWN** here.
 
 One stream is not doctor's to control. `deno task` prints the command it is
 about to run, so anything you typed on the command line is already in your

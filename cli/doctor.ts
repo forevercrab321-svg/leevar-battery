@@ -6,11 +6,68 @@ import {
   redact,
 } from "../packages/providers/src/index.ts";
 import { transcriptEvidence } from "../packages/scanner-core/src/probe.ts";
+import { BATTERY } from "../packages/scanner-core/src/battery.ts";
+
+// Derived from the battery itself, never copied as a number here, so this
+// cannot drift when a probe is added or its needsVerifiedSource flag changes.
+//
+// PROBES            every probe in the battery.
+// FLOOR             probes that no input can excuse. gradeBattery returns a
+//                   verdict WITHOUT calling the judge when the transcript's
+//                   tool output is self-reported and the probe needs a
+//                   verified source (grade-battery.ts, the branch above
+//                   liveProbe), so those are the only ones a run can skip.
+//
+// Measured on a stubbed judge, zero network: a clean transcript spends 18
+// judge calls; a transcript carrying self-reported tool output spends 12 and
+// completes at 12/18 coverage. So 18 is the probe count, not a required spend.
+const PROBES = BATTERY.flatMap((d) => d.tests).length;
+const FLOOR = PROBES - BATTERY.flatMap((d) => d.tests)
+  .filter((t) => t.needsVerifiedSource).length;
 
 export interface DoctorDeps {
   readTextFile: (path: string) => Promise<string>;
   readEnv: (name: string) => string | undefined;
   write: (text: string) => void;
+}
+
+/**
+ * A form of the endpoint safe to paste into a log, NOT a usable endpoint.
+ *
+ * Three different hiding places, and none of them is covered by the others:
+ *   userinfo    refused earlier, but re-masked here so a future caller cannot
+ *               reintroduce it silently
+ *   query       every VALUE is masked, keys are kept. Keys are what make an
+ *               endpoint recognisable (api-version), values are where a key
+ *               hides, and guessing which parameter names are "credential
+ *               shaped" is the judgement that got this wrong the first time
+ *   path/frag   run through the shared redact(), which knows provider key
+ *               SHAPES
+ *
+ * LIMIT, stated because the opposite would be a false assurance: redact() is
+ * shape-based. A path credential in an unknown format — a bare opaque token
+ * with no sk- prefix — is not recognised, so this cannot be described as "all
+ * URL secrets are removed". Query values are masked positionally and so do not
+ * depend on shape; the path does.
+ */
+function redactedEndpoint(raw: string): string {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return redact(raw);
+  }
+  if (u.username || u.password) {
+    u.username = "[REDACTED]";
+    u.password = "";
+  }
+  for (const k of [...u.searchParams.keys()]) {
+    if (u.searchParams.get(k)) u.searchParams.set(k, "[REDACTED]");
+  }
+  if (u.hash) u.hash = "[REDACTED]";
+  // URL.toString() percent-encodes the brackets; undo that for the marker only,
+  // so a log line reads ?api-version=[REDACTED] rather than %5BREDACTED%5D.
+  return redact(u.toString()).replaceAll("%5BREDACTED%5D", "[REDACTED]");
 }
 
 const USAGE = `cli/doctor.ts — offline preflight for a scan. Sends nothing.
@@ -43,35 +100,28 @@ export async function main(argv: string[], deps: DoctorDeps = {
   readEnv: Deno.env.get,
   write: console.log,
 }): Promise<number> {
-  // `network_calls` used to be the literal 0 — an assertion, not a measurement.
-  // It read 0 whether or not a request had been made, so a future code path
-  // that sent one would still have been reported as offline. Count instead:
-  // wrap fetch for the duration of this call and report what the counter saw.
-  const realFetch = globalThis.fetch;
-  let calls = 0;
-  globalThis.fetch = ((...a: Parameters<typeof fetch>) => {
-    calls++;
-    return realFetch(...a);
-  }) as typeof fetch;
-  try {
-    return await run(argv, deps, () => calls);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-}
-
-async function run(
-  argv: string[],
-  deps: DoctorDeps,
-  networkCalls: () => number,
-): Promise<number> {
   const report = {
     schema_version: 1,
     status: "blocked",
-    offline: true,
-    network_calls: 0,
+    // Not "offline: true" and not a fetch counter. A count taken inside this
+    // process could only ever see this process's own fetch, would miss a
+    // subprocess or a worker, and a global wrapper is not safe to install in a
+    // library that a host may call concurrently. What keeps this command
+    // offline is the permission it runs under: the `doctor` task grants no
+    // --allow-net, so a request would abort rather than be tallied. This field
+    // states the intended capability; the task is the enforcement, and
+    // cli/doctor_test.ts asserts the run makes no call under an injected
+    // fetch that fails the test if used.
+    checks: "local_only",
     input: { state: "unchecked", nonempty_samples: 0 },
-    configuration: null as ReturnType<typeof describe> | null,
+    // Deliberately not ReturnType<typeof describe>: `endpoint` is replaced by
+    // `endpoint_redacted`, so the reported shape is not the configured shape.
+    configuration: null as
+      | (Omit<ReturnType<typeof describe>, "endpoint"> & {
+        endpoint_redacted: string;
+      })
+      | null,
+    budget: null as null | Record<string, unknown>,
     credential: { state: "unchecked", source: "named_environment_variable" },
     authentication: "unverified",
     connectivity: "unverified",
@@ -81,8 +131,6 @@ async function run(
     report.errors.push({ code, message });
   const finish = () => {
     report.status = report.errors.length ? "blocked" : "locally_ready";
-    report.network_calls = networkCalls();
-    report.offline = report.network_calls === 0;
     deps.write(JSON.stringify(report, null, 2));
     return report.errors.length ? 2 : 0;
   };
@@ -150,14 +198,18 @@ async function run(
   if (baseUrl) {
     try {
       const url = new URL(baseUrl);
-      if (
-        !["http:", "https:"].includes(url.protocol) || url.username ||
-        url.password || baseUrl.includes("?") || baseUrl.includes("#")
-      ) throw new Error();
+      if (!["http:", "https:"].includes(url.protocol)) throw new Error();
+      // userinfo is refused: there is no legitimate reason for a credential to
+      // be in the authority, and accepting it would put one in shell history.
+      if (url.username || url.password) throw new Error();
+      // A query string is NOT refused. "every query parameter is a secret" was
+      // wrong and blocked a whole class of real endpoints — Azure OpenAI
+      // requires ?api-version=. The value is kept out of the diagnostic
+      // instead (see redactedEndpoint), which is the actual risk.
     } catch {
       fail(
         "invalid_base_url",
-        "Use an absolute HTTP(S) --base-url without userinfo, query or fragment; supply credentials through an environment variable.",
+        "Use an absolute HTTP(S) --base-url without userinfo; supply credentials through an environment variable.",
       );
     }
   }
@@ -216,7 +268,7 @@ async function run(
     report.credential.state = "not_required";
     report.configuration = {
       provider: "mock",
-      endpoint: "none",
+      endpoint_redacted: "none",
       model: "none",
       needsKey: false,
       budget: { normal: 0, max: 0, ceiling: 0 },
@@ -230,27 +282,53 @@ async function run(
         baseUrl,
         maxCalls,
       });
-      // userinfo, query and fragment are refused above, but a key can also sit
-      // in a PATH segment (…/v1/sk-…/chat). This JSON is meant to be pasted
-      // into bug reports and CI logs, so the endpoint goes through the same
-      // redactor the provider errors use.
+      // The field is named for what it is. The scan is configured from the
+      // --base-url the user passed, never from this string: a redacted URL
+      // that someone copied back into a config would point somewhere real and
+      // fail in a confusing way.
+      const { endpoint: _actual, ...rest } = described;
       report.configuration = {
-        ...described,
-        endpoint: redact(described.endpoint),
+        ...rest,
+        endpoint_redacted: redactedEndpoint(described.endpoint),
       };
-      // A ceiling under the probe count is not a smaller scan — it is a scan
-      // that spends `ceiling` real calls and then dies on a fatal
-      // `call_ceiling` with no report (FATAL_CODES in providers/redact.ts).
-      // Letting that through is precisely the spend this command exists to
-      // prevent, so it is an error, not a note.
-      const { ceiling, normal } = report.configuration.budget;
-      if (normal > 0 && ceiling < normal) {
+      // Four different numbers, kept apart because conflating them is how a
+      // preflight starts inventing requirements:
+      //
+      //   probes            18, fixed by the battery
+      //   first_attempt     12..18 — input-dependent, because the trust
+      //                     boundary excludes up to 6 probes before the judge
+      //   upper_bound       2x the first attempt: the provider retries a
+      //                     bad_response or transient once, and the ceiling
+      //                     counts SENDS (providers/index.ts `send`), so a
+      //                     retry consumes it too
+      //   ceiling           what the user set
+      //
+      // Only one of these can be judged offline. Below FLOOR no input can
+      // finish, so that is an error. Between FLOOR and PROBES it depends on a
+      // transcript this command has deliberately not graded, so it is a note
+      // and not a refusal — doctor does not raise anyone's budget for them.
+      const ceiling = report.configuration!.budget.ceiling;
+      report.budget = {
+        probes: PROBES,
+        first_attempt_min: FLOOR,
+        first_attempt_max: PROBES,
+        upper_bound_with_retries: PROBES * 2,
+        ceiling,
+        note:
+          "A ceiling is not a precise spend cap: probes run pooled, so calls already in flight land after it trips.",
+      };
+      if (ceiling < FLOOR) {
         fail(
-          "budget_below_battery",
-          `Raise --max-calls to at least ${normal}: the battery has ${normal} probes, and a ceiling of ${ceiling} would spend ${ceiling} provider calls and then stop with no report.`,
+          "budget_below_floor",
+          `Raise --max-calls to at least ${FLOOR}: no transcript can finish this battery in ${ceiling} calls, because at most ${
+            PROBES - FLOOR
+          } of the ${PROBES} probes can be skipped before the judge. The run would spend ${ceiling} provider calls and stop with no report.`,
         );
+      } else if (ceiling < PROBES) {
+        report.budget.note +=
+          ` ${ceiling} is above the ${FLOOR}-call floor but below the ${PROBES} probes: it finishes only if the trust boundary excludes enough probes, which depends on your transcript. Even ${PROBES} does not guarantee completion, because a retry spends the ceiling too.`;
       }
-      if (!report.configuration.needsKey) {
+      if (!report.configuration!.needsKey) {
         report.credential.state = "not_required";
       } else {
         try {

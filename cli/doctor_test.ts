@@ -142,20 +142,37 @@ Deno.test("doctor validates options without leaking their values", async () => {
   ) {
     assertEquals((await run([...base, "--max-calls", n])).code, 2);
   }
+  // Still refused: a credential in the authority, a non-HTTP scheme, and a
+  // string that is not a URL at all.
   for (
     const url of [
       `https://user:${SECRET}@example.com`,
-      `https://example.com/?key=${SECRET}`,
-      `https://example.com/#${SECRET}`,
       "file:///tmp/private",
       SECRET,
-      "https://example.com/?",
-      "https://example.com/#",
     ]
   ) {
     assertEquals(
       (await run([...base, "--base-url", url])).report.errors[0].code,
       "invalid_base_url",
+    );
+  }
+  // No longer refused. `?key=…` and `#…` used to be rejected on the theory that
+  // any query or fragment is a secret. That rule blocked Azure OpenAI, which
+  // requires ?api-version=, so the URL is accepted and the diagnostic masks the
+  // values instead — asserted in the redaction tests below. What must NOT
+  // happen is the secret appearing in the output.
+  for (
+    const url of [
+      `https://example.com/?key=${SECRET}`,
+      `https://example.com/#${SECRET}`,
+      "https://example.com/?",
+      "https://example.com/#",
+    ]
+  ) {
+    const r = await run([...base, "--base-url", url]);
+    assert(
+      !JSON.stringify(r.report).includes(SECRET),
+      `${url} put its value in the diagnostic`,
     );
   }
 });
@@ -172,57 +189,161 @@ Deno.test("doctor describes explicit model endpoint and ceiling without sending"
   assertEquals(r.code, 0);
   assertEquals(r.report.configuration.model, "chosen-model");
   assertEquals(
-    r.report.configuration.endpoint,
+    r.report.configuration.endpoint_redacted,
     "http://localhost:8000/v1/chat/completions",
   );
   assertEquals(r.report.configuration.budget.ceiling, 18);
   assertEquals(r.envReads, ["OPENAI_API_KEY"]);
 });
 
-// This case used to assert code 0 for --max-calls 7, which locked in the one
-// outcome this command exists to prevent: a ceiling under the probe count
-// spends that many real provider calls and then dies on a fatal call_ceiling
-// with no report. Proven on a stubbed judge: 17 throws after 17 calls, 18
-// completes. Found in independent review of the first draft of this PR.
-Deno.test("a ceiling under the battery size is blocked, not merely described", async () => {
-  for (const ceiling of ["1", "7", "17"]) {
+// The first draft of this test asserted that ANY ceiling under 18 must block.
+// That was wrong, and it would have blocked runs that finish. 18 is the probe
+// count, not a required spend: gradeBattery returns a verdict WITHOUT calling
+// the judge when the transcript's tool output is self-reported and the probe
+// needs a verified source. Measured on a stubbed judge, zero network:
+//   clean transcript      -> 18 judge calls, completes 18/18
+//   self-reported tools   -> 12 judge calls, completes 12/18
+//   ceiling 12, self-tool -> completes
+// So the only offline-decidable line is the FLOOR: probes minus the ones the
+// trust boundary can skip. Below it no input finishes; above it, it depends on
+// a transcript doctor has deliberately not graded.
+Deno.test("only a ceiling below the floor blocks; between floor and probes it is a note", async () => {
+  const floor = 12, probes = 18;
+  for (const ceiling of ["1", "7", String(floor - 1)]) {
     const r = await run([...base, "--max-calls", ceiling]);
-    assertEquals(r.code, 2, `--max-calls ${ceiling} must block`);
-    assertEquals(r.report.status, "blocked");
+    assertEquals(r.code, 2, `--max-calls ${ceiling} is below the floor`);
     assert(
       r.report.errors.some((e: { code: string }) =>
-        e.code === "budget_below_battery"
+        e.code === "budget_below_floor"
       ),
-      `--max-calls ${ceiling} must name budget_below_battery`,
     );
   }
-  // The boundary is the probe count itself, not an arbitrary number.
-  const ok = await run([...base, "--max-calls", "18"]);
-  assertEquals(ok.code, 0);
-  assertEquals(ok.report.configuration.budget.ceiling, 18);
-  assertEquals(ok.report.configuration.budget.normal, 18);
+  // At and above the floor: allowed, and NOT silently raised for the user.
+  for (const ceiling of [String(floor), "17", String(probes)]) {
+    const r = await run([...base, "--max-calls", ceiling]);
+    assertEquals(r.code, 0, `--max-calls ${ceiling} must not be refused`);
+    assertEquals(r.report.configuration.budget.ceiling, Number(ceiling));
+  }
+  // The four numbers stay distinct in the output.
+  const r = await run([...base, "--max-calls", "17"]);
+  assertEquals(r.report.budget.probes, probes);
+  assertEquals(r.report.budget.first_attempt_min, floor);
+  assertEquals(r.report.budget.first_attempt_max, probes);
+  assertEquals(r.report.budget.upper_bound_with_retries, probes * 2);
+  assert(
+    r.report.budget.note.includes("does not guarantee"),
+    "a ceiling between the floor and the probe count must say it is not a guarantee",
+  );
 });
 
-Deno.test("a key hidden in a base-url path segment does not reach stdout", async () => {
-  // userinfo, query and fragment are refused outright; a path segment is not,
-  // so the endpoint goes through the same redactor the provider errors use.
+// The floor is derived from the battery, not typed in here. If a probe is added
+// or a needsVerifiedSource flag changes, this fails rather than drifting.
+Deno.test("the floor tracks the battery instead of being a copied number", async () => {
+  const { BATTERY } = await import("../packages/scanner-core/src/battery.ts");
+  const all = BATTERY.flatMap((d: { tests: unknown[] }) => d.tests) as {
+    needsVerifiedSource?: boolean;
+  }[];
+  const r = await run([...base, "--max-calls", "18"]);
+  assertEquals(r.report.budget.probes, all.length);
+  assertEquals(
+    r.report.budget.first_attempt_min,
+    all.length - all.filter((t) => t.needsVerifiedSource).length,
+  );
+});
+
+Deno.test("a query string is accepted, and its values do not reach the output", async () => {
+  // "every query parameter is a secret" was the first draft's rule. It blocked
+  // Azure OpenAI, whose endpoint REQUIRES ?api-version=. Keys are kept because
+  // they make an endpoint recognisable; values are masked because that is where
+  // a credential hides.
   const r = await run([
     "--transcript",
     `/private/${SECRET}.json`,
     "--provider",
     "openai-compatible",
     "--base-url",
-    "https://example.com/v1/sk-LEAKEDSECRET1234/chat",
+    "https://o.openai.azure.com/openai/deployments/g/chat?api-version=2024-02-01&api-key=sk-SECRET12345678",
+    "--max-calls",
+    "18",
+  ]);
+  assertEquals(r.code, 0, "a legitimate query string must not be refused");
+  const shown = r.report.configuration.endpoint_redacted;
+  assert(
+    !shown.includes("sk-SECRET12345678"),
+    "a key in a query value was shown",
+  );
+  assert(
+    !shown.includes("2024-02-01"),
+    "query values must be masked positionally",
+  );
+  assert(
+    shown.includes("api-version"),
+    "the key name is what makes it recognisable",
+  );
+  // The field is not named `endpoint`: a redacted URL must not be copied back
+  // into a config and executed.
+  assertEquals(r.report.configuration.endpoint, undefined);
+});
+
+Deno.test("userinfo is refused outright; fragment and sk- paths are masked", async () => {
+  const bad = await run([
+    "--transcript",
+    `/private/${SECRET}.json`,
+    "--provider",
+    "openai-compatible",
+    "--base-url",
+    "https://user:sk-SECRET12345678@h/v1",
+    "--max-calls",
+    "18",
+  ]);
+  assertEquals(bad.code, 2);
+  assert(
+    bad.report.errors.some((e: { code: string }) =>
+      e.code === "invalid_base_url"
+    ),
+  );
+
+  for (
+    const url of [
+      "https://h/v1#sk-SECRET12345678",
+      "https://h/v1/sk-SECRET12345678/chat",
+    ]
+  ) {
+    const r = await run([
+      "--transcript",
+      `/private/${SECRET}.json`,
+      "--provider",
+      "openai-compatible",
+      "--base-url",
+      url,
+      "--max-calls",
+      "18",
+    ]);
+    assert(
+      !JSON.stringify(r.report).includes("sk-SECRET12345678"),
+      `a key survived in ${url}`,
+    );
+  }
+});
+
+// A LIMIT, pinned on purpose so nobody upgrades it into "all URL secrets are
+// removed". Path redaction is SHAPE based: an opaque token with no recognisable
+// prefix is not detected. Query values are masked positionally and so are safe
+// regardless of shape; the path is not.
+Deno.test("an opaque path credential is NOT redacted, and that is a known limit", async () => {
+  const r = await run([
+    "--transcript",
+    `/private/${SECRET}.json`,
+    "--provider",
+    "openai-compatible",
+    "--base-url",
+    "https://h/v1/Zx9Qw7Lm2Kp4Rt6Y/chat",
     "--max-calls",
     "18",
   ]);
   assert(
-    !JSON.stringify(r.report).includes("sk-LEAKEDSECRET1234"),
-    "a key in the endpoint path reached the diagnostic JSON",
-  );
-  assert(
-    r.report.configuration.endpoint.includes("[REDACTED]"),
-    "the endpoint was not redacted",
+    r.report.configuration.endpoint_redacted.includes("Zx9Qw7Lm2Kp4Rt6Y"),
+    "if this now passes, path redaction improved — update the docs that state this limit",
   );
 });
 
