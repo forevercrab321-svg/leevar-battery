@@ -10,8 +10,11 @@
 name: deno
 
 on:
+  # Every branch, not just main: a push to a branch with no PR yet used to run
+  # nothing, so a broken commit could sit green-looking until someone opened
+  # one. Found while proving this workflow fails for the right reason — the
+  # proof needed a throwaway PR because the branch push alone triggered nothing.
   push:
-    branches: [main]
   pull_request:
 
 permissions:
