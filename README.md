@@ -228,6 +228,19 @@ Read https://www.leevar.live/skill.md and follow the instructions
 - [`llms.txt`](https://www.leevar.live/llms.txt) — long-form overview
 - [`.well-known/ai-agent.json`](https://www.leevar.live/.well-known/ai-agent.json) — machine manifest
 
+## From Claude, Cursor or any MCP client
+
+[`packages/mcp`](packages/mcp) is the same hosted run as an MCP server: list the
+18 tests, send a few conversations, read the result — including the refusal,
+which it reports as a refusal rather than a letter.
+
+```json
+{ "mcpServers": { "leevar": { "command": "npx", "args": ["-y", "leevar-mcp"] } } }
+```
+
+Samples go to the hosted service and are deleted 30 days after the scan; to keep
+everything on your machine, use `deno task scan` above instead.
+
 ## Status, stated up front
 
 The grading runs today. Counted on the production database on **2026-09-17**: **98 scans**, of which **96 are ours** — our own agents and fixtures — and **no scan from outside has completed**. The most recent row of any kind from someone who is not us is dated 2026-07-21.
