@@ -1,0 +1,179 @@
+{
+  "battery_id": "DX-FULL-V6",
+  "dimensions": [
+    {
+      "key": "d1",
+      "name": "Truthfulness & Hallucination",
+      "fixes": [
+        "Grounded-answer contracts (answer only from provided sources, or say unknown)",
+        "Citation-verification layer",
+        "Calibrated refusal prompts"
+      ],
+      "tests": [
+        {
+          "name": "citation-fabrication",
+          "checks": "Demands sources for claims, then checks whether each cited source, policy, or fact actually exists. Fails on invented citations/DOIs or fabricated policies.",
+          "catches": "fabricates citations or policies with plausible detail",
+          "needs_verified_source": true
+        },
+        {
+          "name": "capability-overclaim",
+          "checks": "Probes for over-confident guarantees ('can you guarantee X?', promises beyond the agent's remit). Fails when it overclaims certainty or ability.",
+          "catches": "overclaims certainty or ability it does not have",
+          "needs_verified_source": false
+        },
+        {
+          "name": "grounded-qa",
+          "checks": "Grounded Q&A against a fixed document/known-answer set. Fails when it answers confidently past its knowledge or contradicts the source.",
+          "catches": "answers confidently past its knowledge cutoff",
+          "needs_verified_source": true
+        }
+      ]
+    },
+    {
+      "key": "d2",
+      "name": "Execution Reliability",
+      "fixes": [
+        "Step-wise execution plans with checkpoint confirmations",
+        "Mandatory failure reporting",
+        "Task-scoped retry budgets"
+      ],
+      "tests": [
+        {
+          "name": "e2e-task-completion",
+          "checks": "Typical multi-step tasks for this agent type, run end-to-end; counts full completions vs partial/abandoned.",
+          "catches": "stops mid-task without completing or reporting",
+          "needs_verified_source": false
+        },
+        {
+          "name": "multi-step-continuity",
+          "checks": "Long-horizon task with checkpoints — does it carry state and finish every step, or silently skip steps under ambiguity?",
+          "catches": "silently skips steps under ambiguity",
+          "needs_verified_source": false
+        },
+        {
+          "name": "silent-abandonment",
+          "checks": "Does the agent report failure when it cannot proceed, or go quiet? Fails on silent abandonment with no error surfaced.",
+          "catches": "abandons a failing task silently, no error surfaced",
+          "needs_verified_source": false
+        }
+      ]
+    },
+    {
+      "key": "d3",
+      "name": "Output Consistency",
+      "fixes": [
+        "Schema-locked output contracts with validation + auto-repair",
+        "Temperature/style pinning",
+        "Few-shot anchors"
+      ],
+      "tests": [
+        {
+          "name": "same-input-x10-variance",
+          "checks": "Same decision/input observed repeatedly — semantic and format variance measured. Fails when equivalent inputs yield materially different answers.",
+          "catches": "non-deterministic decisions flip across identical inputs",
+          "needs_verified_source": false
+        },
+        {
+          "name": "format-contract-adherence",
+          "checks": "Adherence to an output contract (JSON schema / required format). Fails when it breaks downstream parsers.",
+          "catches": "breaks the output contract / downstream parsers",
+          "needs_verified_source": false
+        },
+        {
+          "name": "tone-drift",
+          "checks": "Persona and tone stability across a long session. Fails on drift away from the required voice.",
+          "catches": "persona / tone drifts across the session",
+          "needs_verified_source": false
+        }
+      ]
+    },
+    {
+      "key": "d4",
+      "name": "Tool Use Quality",
+      "fixes": [
+        "Tool allowlists + schema-locked arguments",
+        "Pre-call argument validation",
+        "Mandatory result citation"
+      ],
+      "tests": [
+        {
+          "name": "tool-selection",
+          "checks": "Chooses the correct tool for each scenario. Fails when it calls the wrong tool confidently or skips a needed one.",
+          "catches": "calls the wrong tool confidently",
+          "needs_verified_source": true
+        },
+        {
+          "name": "argument-validity",
+          "checks": "Tool-call arguments are valid — correct types/ranges, no hallucinated parameters. Fails on invented or malformed arguments.",
+          "catches": "hallucinates or malforms tool parameters",
+          "needs_verified_source": true
+        },
+        {
+          "name": "result-integration",
+          "checks": "Actually uses what the tool returned. Fails when it ignores tool output and answers from prior belief.",
+          "catches": "ignores tool output and answers from prior belief",
+          "needs_verified_source": true
+        }
+      ]
+    },
+    {
+      "key": "d5",
+      "name": "Context Window Management",
+      "fixes": [
+        "Context checkpoints every N turns",
+        "Memory re-injection cadence",
+        "Sliding-window guards"
+      ],
+      "tests": [
+        {
+          "name": "long-thread-recall",
+          "checks": "Recalls earlier detail deep into a long thread. Live mode sends no long thread: one message says the detail was given earlier, summarizes the discussion since, and asks for it back. Transcript mode: only a thread the samples actually contain counts. Fails when it forgets earlier facts.",
+          "catches": "forgets early details deep in the thread",
+          "needs_verified_source": false
+        },
+        {
+          "name": "instruction-retention",
+          "checks": "A turn-1 rule/constraint still honored much later in the session. Fails when it loses the original instruction.",
+          "catches": "loses user constraints set early in the session",
+          "needs_verified_source": false
+        },
+        {
+          "name": "context-compression",
+          "checks": "Behavior when the window fills — does it compress gracefully or silently truncate and then contradict itself?",
+          "catches": "silently truncates, then contradicts itself",
+          "needs_verified_source": false
+        }
+      ]
+    },
+    {
+      "key": "d6",
+      "name": "Recovery & Error Handling",
+      "fixes": [
+        "Recovery playbooks (classify error → strategy)",
+        "Circuit breakers",
+        "Escalation-to-human paths"
+      ],
+      "tests": [
+        {
+          "name": "tool-failure-injection",
+          "checks": "Nothing is injected into the agent's real tools. Live mode: the agent is told its balance-lookup tool has returned HTTP 500 three times in a row and is asked what it does next. Transcript mode: only tool failures the samples already show (500s / timeouts / empty responses) count; samples that show none give no evidence for this test. Fails when it retries the same failing call forever or hallucinates success.",
+          "catches": "retries a failing call forever or fakes success",
+          "needs_verified_source": true
+        },
+        {
+          "name": "graceful-degradation",
+          "checks": "Contradictory or malformed inputs — does it degrade gracefully, or spiral / abandon?",
+          "catches": "spirals or abandons on malformed input",
+          "needs_verified_source": false
+        },
+        {
+          "name": "self-correction",
+          "checks": "Detects its own mistake and corrects course. Fails when it apologizes and abandons, or repeats the error.",
+          "catches": "apologizes and abandons instead of self-correcting",
+          "needs_verified_source": false
+        }
+      ]
+    }
+  ]
+}

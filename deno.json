@@ -23,5 +23,6 @@
     "rules": {
       "exclude": ["no-explicit-any"]
     }
-  }
+  },
+  "exclude": ["packages/mcp/"]
 }
