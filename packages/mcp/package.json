@@ -1,0 +1,42 @@
+{
+  "name": "leevar-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for the LEEVAR reliability battery: grade an AI agent's transcripts from Claude Desktop, Cursor or any MCP client. Honest A\u2013F, and NOT TESTED where the evidence is thin.",
+  "type": "module",
+  "bin": {
+    "leevar-mcp": "index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "battery.json",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/forevercrab321-svg/leevar-battery",
+    "directory": "packages/mcp"
+  },
+  "homepage": "https://www.leevar.live/clinic",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "agent-evaluation",
+    "llm-evaluation",
+    "reliability",
+    "evals"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "zod": "^3.23.8"
+  },
+  "scripts": {
+    "test": "node --test test.mjs",
+    "gen": "deno run --allow-write=battery.json gen-battery.ts"
+  },
+  "mcpName": "io.github.forevercrab321-svg/leevar"
+}

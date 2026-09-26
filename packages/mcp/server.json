@@ -1,0 +1,25 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.forevercrab321-svg/leevar",
+  "title": "LEEVAR reliability battery",
+  "description": "Grade an AI agent's transcripts on 18 reliability tests. Thin evidence is NOT TESTED, not guessed.",
+  "version": "0.1.0",
+  "websiteUrl": "https://www.leevar.live/clinic",
+  "repository": {
+    "url": "https://github.com/forevercrab321-svg/leevar-battery",
+    "source": "github",
+    "subfolder": "packages/mcp"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "leevar-mcp",
+      "version": "0.1.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
