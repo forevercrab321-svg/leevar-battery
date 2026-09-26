@@ -19,14 +19,23 @@ printing a letter.
 
 ## Install
 
-Claude Desktop (`claude_desktop_config.json`) or Cursor (`.cursor/mcp.json`):
+The npm package is not published yet. Until it is, run the server from a clone
+(Node 18 or later):
+
+```bash
+git clone https://github.com/forevercrab321-svg/leevar-battery
+cd leevar-battery/packages/mcp && npm install
+```
+
+Claude Desktop (`claude_desktop_config.json`) or Cursor (`.cursor/mcp.json`),
+with the absolute path to your clone:
 
 ```json
 {
   "mcpServers": {
     "leevar": {
-      "command": "npx",
-      "args": ["-y", "leevar-mcp"]
+      "command": "node",
+      "args": ["/absolute/path/to/leevar-battery/packages/mcp/index.mjs"]
     }
   }
 }
@@ -35,7 +44,7 @@ Claude Desktop (`claude_desktop_config.json`) or Cursor (`.cursor/mcp.json`):
 Claude Code:
 
 ```bash
-claude mcp add leevar -- npx -y leevar-mcp
+claude mcp add leevar -- node /absolute/path/to/leevar-battery/packages/mcp/index.mjs
 ```
 
 Then ask, for example: *"List the LEEVAR battery, pick three of my support
@@ -43,8 +52,10 @@ bot's conversations that cover it, and scan them."*
 
 ## Your data
 
-Samples go to LEEVAR's hosted service, are graded by a model, and are deleted
-30 days after the scan completes ([privacy](https://www.leevar.live/privacy)).
+Samples go to LEEVAR's hosted service, are graded there by third-party
+language models (named on the [privacy page](https://www.leevar.live/privacy)),
+and are deleted 30 days after the scan completes. Each scan uses one of the
+email's 5 free monthly scans.
 Strip API keys, credentials and personal data before sending. The tool
 descriptions tell the assistant to ask you before it sends anything.
 

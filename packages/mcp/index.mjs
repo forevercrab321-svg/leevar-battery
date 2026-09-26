@@ -12,8 +12,9 @@
 // a score. A scan whose samples cannot evidence enough of the battery comes
 // back without a grade, and this server says so rather than filling the gap.
 //
-// Privacy: samples you send are processed by LEEVAR's hosted service and
-// deleted 30 days after the scan completes (https://www.leevar.live/privacy).
+// Privacy: samples you send go to LEEVAR's hosted service, are graded there by
+// third-party language models (named at https://www.leevar.live/privacy), and
+// are deleted 30 days after the scan completes.
 // Strip API keys, credentials and personal data first.
 
 import { readFileSync, realpathSync } from "node:fs";
@@ -126,9 +127,11 @@ export function createServer({ fetchImpl = fetch } = {}) {
         "Send real conversation samples from an AI agent to the LEEVAR reliability battery " +
         "(18 tests, 6 dimensions). Free: 5 scans a month per email, no account. Returns a scan id; " +
         "the result takes a few minutes — read it with leevar_scan_status. Dimensions the samples " +
-        "cannot evidence come back NOT TESTED, and below 13 of 18 evidenced tests no grade is issued. " +
-        "Samples are processed by LEEVAR's hosted service and deleted 30 days after the scan; strip " +
-        "keys, credentials and personal data first. Ask the user before sending their data.",
+        "cannot evidence come back NOT TESTED, and with fewer than two thirds of the gradeable tests " +
+        "evidenced no grade is issued. Samples go to LEEVAR's hosted service, are graded there by " +
+        "third-party language models (named at https://www.leevar.live/privacy), and are deleted 30 days " +
+        "after the scan; strip keys, credentials and personal data first. Each scan uses one of the " +
+        "email's 5 free monthly scans. Ask the user before sending their data.",
       inputSchema: {
         agent_name: z.string().min(1).max(120).describe("Name of the agent being graded"),
         email: z.string().email().describe("Where the report goes; also the free-quota key and needed to read the result"),
@@ -138,6 +141,9 @@ export function createServer({ fetchImpl = fetch } = {}) {
         model: z.string().max(80).optional().describe("Model class the agent runs on"),
         description: z.string().max(500).optional().describe("What the agent does, in a sentence or two"),
       },
+      // Not read-only: it spends one of the email's free scans and sends data
+      // to a third-party service.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     async (args) => {
       const r = await call({
@@ -171,7 +177,7 @@ export function createServer({ fetchImpl = fetch } = {}) {
         scan_id: z.string().min(3).max(60).describe("e.g. SCN-2026-1234"),
         email: z.string().email().describe("The email the scan was created with"),
       },
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async (args) => {
       const r = await call({ scan_id: args.scan_id, email: args.email }, fetchImpl);
@@ -188,7 +194,7 @@ export function createServer({ fetchImpl = fetch } = {}) {
         "The LEEVAR battery: 6 dimensions × 3 tests, what each test checks and the failure it catches. " +
         "Use it to pick conversation samples that exercise every test before scanning.",
       inputSchema: {},
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async () => {
       const lines = [`Battery ${BATTERY.battery_id}`];

@@ -1,5 +1,7 @@
-// Regenerates battery.json from the running battery definition, so the MCP
-// server ships exactly the tests the hosted scan grades. Run from this folder:
+// Regenerates battery.json from packages/scanner-core, so the MCP server ships
+// the same 18 test names, dimensions and verified-source flags the hosted scan
+// grades. A test's descriptive text can differ slightly from the hosted copy.
+// Run from this folder:
 //   deno run --allow-write=battery.json gen-battery.ts
 import { BATTERY, BATTERY_ID } from "../scanner-core/src/battery.ts";
 
