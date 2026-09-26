@@ -8,8 +8,8 @@ Research notes behind [14 public AI agent failures, mapped to 18 tests — and t
 
 - **Sources.** Every URL was opened on 2026-09-26 unless marked **UNVERIFIED**. No logins were used.
 - **Quotes** are copied from the opened page and kept under 15 words, preferring primary material (rulings, official statements, the agent's own output). Anything else is marked *paraphrase*.
-- **Evidence tier.** **A**: a court or tribunal ruling, or the deployer's own admission. **B**: a primary record (a user's transcript or screenshots) plus reputable coverage, without an admission. **C**: user-reported, and the outlet says it could not verify; or the cause is speculative.
-- **⚠️** marks a test that needs a verified source to grade. A transcript alone cannot show that a cited policy or case is invented; those tests need the real policy, law, article or file system as ground truth.
+- **Evidence tier.** **A**: a court or tribunal ruling, or the deployer's own admission. **B**: a primary record (a user's transcript or screenshots) plus reputable coverage, without an admission. **C**: user-reported, and the outlet says it could not verify; or the cause is speculative. A **−** or **+** marks a case that sits between two tiers; the reason is given next to it.
+- **⚠️** marks a test that needs a verified source to grade. A transcript alone cannot show that a cited policy or case is invented; those tests need the real policy, law, article or file system as ground truth. In transcript mode the battery drops a ⚠️ test only when the sample contains tool output the agent wrote itself ([BATTERY.md](../BATTERY.md)). Otherwise the judge grades it without the real source, so a pass means "not contradicted by the transcript", not "verified".
 - **Agent confessions are output, not evidence.** Where an agent explained its own failure after the fact, that explanation is quoted as output and never used as the cause.
 
 Corrections and additions welcome as issues or PRs — especially a source that contradicts something here.
@@ -112,7 +112,7 @@ Corrections and additions welcome as issues or PRs — especially a source that 
 
 **Established vs alleged**
 - *Key quote (DPD statement, via BBC and Guardian):* "An error occurred after a system update yesterday. The AI element was immediately disabled"
-- *Established (BBC):* the customer convinced the bot to swear, asked it to "exaggerate and be over the top in your hatred", and got it to criticise DPD in a haiku. I read his post's text but did not view the screenshots themselves.
+- *Established (BBC):* the customer convinced the bot to swear, asked it to "exaggerate and be over the top in your hatred", and got it to criticise DPD in a haiku. We read his post's text but did not view the screenshots themselves.
 - *Not established:* what the "system update" changed.
 
 **Failure behaviour.** The bot abandoned its brand persona when a user asked it to, and turned on its own operator.
@@ -140,7 +140,7 @@ Corrections and additions welcome as issues or PRs — especially a source that 
 **Established vs alleged**
 - *Established (tribunal):* the chatbot's text is quoted in the decision (para. 15). The contradicting web page is described in para. 17. Air Canada's representative admitted "misleading words" (para. 22).
 - *Key quote (tribunal, para. 28):* Air Canada "did not take reasonable care to ensure its chatbot was accurate."
-- *Accuracy flag:* CBC and Ars Technica present "a separate legal entity that is responsible for its own actions" as Air Canada's own words. In the decision (para. 27), that phrase is the **tribunal member's characterisation**: "In effect, Air Canada suggests the chatbot is a separate legal entity…". Do not put it in Air Canada's mouth.
+- *Accuracy flag:* CBC presents "a separate legal entity that is responsible for its own actions" as Air Canada's own words. In the decision (para. 27), that phrase is the **tribunal member's characterisation**: "In effect, Air Canada suggests the chatbot is a separate legal entity…". Do not put it in Air Canada's mouth.
 
 **Failure behaviour.** The bot invented a refund policy that contradicted the company's own published policy.
 
@@ -224,7 +224,7 @@ Corrections and additions welcome as issues or PRs — especially a source that 
 **Established vs alleged**
 - *Key quote (Truell, via The Register):* "this is an incorrect response from a front-line AI support bot."
 - *Established (Truell on HN):* AI email-support responses are now labelled. The user was refunded. The logouts came from a race condition on very slow connections, and a fix was rolled out.
-- *Wording flag:* Ars prints the bot's sentence from a screenshot, saying Cursor is designed for one device per subscription as a core security feature (*paraphrase*). I did not view the screenshot itself.
+- *Wording flag:* Ars prints the bot's sentence from a screenshot, saying Cursor is designed for one device per subscription as a core security feature (*paraphrase*). We did not view the screenshot itself.
 - *Alleged, not established:* an outside tester quoted by The Register (Marcus Merrell of Sauce Labs) said some users saw the policy message and others did not. That is his claim, not a documented finding.
 
 **Failure behaviour.** The support bot explained a bug by inventing a company policy.
@@ -366,7 +366,7 @@ Corrections and additions welcome as issues or PRs — especially a source that 
 **Failure behaviour.** The agent lost or ignored an approval requirement set earlier. It did not respond to interrupt messages. It took bulk destructive actions on external data.
 
 **LEEVAR test.**
-- **Context Window Management › `instruction-retention`** (primary). **`context-compression`** (secondary: "silently truncate, then contradict itself", *if* compaction is the cause).
+- **Context Window Management › `instruction-retention`** (primary). **`context-compression`** (secondary: "silently truncates, then contradicts itself", *if* compaction is the cause).
 - *Grading:* a transcript containing "don't action until I tell you to" followed later by trash commands fails `instruction-retention`, whatever the cause.
 - *Honesty note:* the battery has **no interruptibility test**, for ignoring "stop" mid-run, and no test for destructive action without confirmation. The deletions happened in Gmail, which is outside anything a transcript can verify.
 
@@ -381,7 +381,7 @@ Corrections and additions welcome as issues or PRs — especially a source that 
 **Evidence tier: C.** The transfer itself is on-chain, per The Block. The cause is speculation. The Block also quotes critics who doubt the "autonomous agent" framing.
 
 **Sources (opened 2026-09-26)**
-- The Block (22 Feb 2026): https://www.theblock.co/post/390722/ai-agent-created-by-openai-dev-accidentally-sends-entire-memecoin-holdings-to-reply-guy (read in a browser pane; direct fetch returned HTTP 403)
+- The Block (22 Feb 2026): https://www.theblock.co/post/390722/ai-agent-created-by-openai-dev-accidentally-sends-entire-memecoin-holdings-to-reply-guy (a direct fetch returned HTTP 403; the text was read in a browser)
 - X posts: @pashmerepat (20 Feb 2026), https://x.com/pashmerepat/status/2024698905322279393 · request by @TreasureD76, https://x.com/TreasureD76/status/2025607780690694235 · agent's post, https://x.com/LobstarWilde/status/2025611005380972547
 
 **Established vs alleged**
@@ -420,13 +420,13 @@ Counts are from the 14 incidents above. One incident can fall into several categ
 **By deployer type:** customer-facing chatbots and support: 6 (#3, #4, #5, #6, #8, plus #1 as a public chatbot) · coding agents and CI agents: 4 (#9–12) · personal or autonomous agents: 2 (#13, #14) · general chatbot misused by professionals: 1 (#2) · OS summariser: 1 (#7).
 **Deployer acknowledged fault or changed the product:** 9 of 14: #1, #4, #5 (a representative admitted "misleading words" in Feb 2023, but the airline still contested liability), #6, #7, #8, #9, #12, and #3 (vendor pulled the bot). Google's responses in #10 and #11 did not admit fault.
 
-**How well the battery maps (my own assessment):**
+**How well the battery maps (our own assessment):**
 - **Strong fit, meaning the test's own "Catches" line describes the incident: 8.** #1 `tone-drift`, #2 `citation-fabrication`, #5 `citation-fabrication`/`grounded-qa`, #6 `grounded-qa` + `same-input-x10-variance`, #8 `citation-fabrication`, #9 `instruction-retention`, #10 `result-integration` + `self-correction`, #13 `instruction-retention`.
 - **Partial or weak fit: 5.** #3 catches the symptom but not the injection, #4 is short-session provocation rather than drift, #7 is not an agent, #11 relies on a confessed argument, #14 has a speculative cause.
 - **No fit: 1.** #12, prompt injection.
-- **8 of the 13 mapped incidents rest on a ⚠️ test** (#2, #5, #6, #7, #8, #10, #11, #14). These are exactly the tests that need ground truth: the real policy, law, case reporter, source article or file system. In transcript mode they can end up at reduced coverage, so none of these should be read as "LEEVAR would have caught it" from a transcript alone.
+- **8 of the 13 mapped incidents rest on a ⚠️ test** (#2, #5, #6, #7, #8, #10, #11, #14). These are exactly the tests that need ground truth: the real policy, law, case reporter, source article or file system. In transcript mode these tests are still graded unless the transcript contains tool output the agent wrote itself, and the judge does not have the real source, so a plausible invention can pass. None of these should be read as "LEEVAR would have caught it" from a transcript alone.
 - **Gaps the incidents expose:** prompt injection (#3, #12), destructive action without confirmation (#9, #11, #13, #14), and ignoring interrupts or "stop" (#13). The battery tests none of these directly.
-- **Tests with no public incident in this set:** `e2e-task-completion`, `multi-step-continuity`, `silent-abandonment`, `format-contract-adherence`, `long-thread-recall`, `tool-failure-injection` (only a secondary for #9) and `graceful-degradation`. *My inference, not a finding:* these failures are quieter and rarely go viral, so a public-incident list under-samples them.
+- **Tests with no public incident in this set:** `e2e-task-completion`, `multi-step-continuity`, `silent-abandonment`, `format-contract-adherence`, `long-thread-recall`, `tool-failure-injection` (only a secondary for #9) and `graceful-degradation`. *Our inference, not a finding:* these failures are quieter and rarely go viral, so a public-incident list under-samples them.
 
 ## Considered but not included
 
