@@ -12,11 +12,9 @@
   },
   "packages": [
     {
-      "registryType": "npm",
-      "registryBaseUrl": "https://registry.npmjs.org",
-      "identifier": "leevar-mcp",
-      "version": "0.1.0",
-      "runtimeHint": "npx",
+      "registryType": "mcpb",
+      "identifier": "https://github.com/forevercrab321-svg/leevar-battery/releases/download/v0.1.0/leevar-mcp-0.1.0.mcpb",
+      "fileSha256": "e4d79b50a6d3bb32268c08b71b0bda06d352c4ba40e4ba41f8ac111fe592760d",
       "transport": {
         "type": "stdio"
       }
