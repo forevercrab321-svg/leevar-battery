@@ -19,23 +19,18 @@ printing a letter.
 
 ## Install
 
-The npm package is not published yet. Until it is, run the server from a clone
-(Node 18 or later):
+Node 18 or later. The package is installed straight from the
+[v0.1.0 release](https://github.com/forevercrab321-svg/leevar-battery/releases/tag/v0.1.0);
+it is not on the npm registry yet.
 
-```bash
-git clone https://github.com/forevercrab321-svg/leevar-battery
-cd leevar-battery/packages/mcp && npm install
-```
-
-Claude Desktop (`claude_desktop_config.json`) or Cursor (`.cursor/mcp.json`),
-with the absolute path to your clone:
+Claude Desktop (`claude_desktop_config.json`) or Cursor (`.cursor/mcp.json`):
 
 ```json
 {
   "mcpServers": {
     "leevar": {
-      "command": "node",
-      "args": ["/absolute/path/to/leevar-battery/packages/mcp/index.mjs"]
+      "command": "npx",
+      "args": ["-y", "https://github.com/forevercrab321-svg/leevar-battery/releases/download/v0.1.0/leevar-mcp-0.1.0.tgz"]
     }
   }
 }
@@ -44,8 +39,11 @@ with the absolute path to your clone:
 Claude Code:
 
 ```bash
-claude mcp add leevar -- node /absolute/path/to/leevar-battery/packages/mcp/index.mjs
+claude mcp add leevar -- npx -y https://github.com/forevercrab321-svg/leevar-battery/releases/download/v0.1.0/leevar-mcp-0.1.0.tgz
 ```
+
+From source instead: clone this repository, run `npm install` in
+`packages/mcp`, and point your client at `node <clone>/packages/mcp/index.mjs`.
 
 Then ask, for example: *"List the LEEVAR battery, pick three of my support
 bot's conversations that cover it, and scan them."*
