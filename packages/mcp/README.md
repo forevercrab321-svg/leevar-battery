@@ -19,15 +19,18 @@ printing a letter.
 
 ## Install
 
-Node 18 or later. Claude Desktop (`claude_desktop_config.json`) or Cursor
-(`.cursor/mcp.json`):
+Node 18 or later. The package is installed straight from the
+[v0.1.0 release](https://github.com/forevercrab321-svg/leevar-battery/releases/tag/v0.1.0);
+it is not on the npm registry yet.
+
+Claude Desktop (`claude_desktop_config.json`) or Cursor (`.cursor/mcp.json`):
 
 ```json
 {
   "mcpServers": {
     "leevar": {
       "command": "npx",
-      "args": ["-y", "leevar-mcp"]
+      "args": ["-y", "https://github.com/forevercrab321-svg/leevar-battery/releases/download/v0.1.0/leevar-mcp-0.1.0.tgz"]
     }
   }
 }
@@ -36,7 +39,7 @@ Node 18 or later. Claude Desktop (`claude_desktop_config.json`) or Cursor
 Claude Code:
 
 ```bash
-claude mcp add leevar -- npx -y leevar-mcp
+claude mcp add leevar -- npx -y https://github.com/forevercrab321-svg/leevar-battery/releases/download/v0.1.0/leevar-mcp-0.1.0.tgz
 ```
 
 From source instead: clone this repository, run `npm install` in

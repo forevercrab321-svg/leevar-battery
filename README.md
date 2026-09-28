@@ -234,12 +234,13 @@ Read https://www.leevar.live/skill.md and follow the instructions
 18 tests, send a few conversations, read the result — including the refusal,
 which it reports as a refusal rather than a letter.
 
-```json
-{ "mcpServers": { "leevar": { "command": "npx", "args": ["-y", "leevar-mcp"] } } }
+```bash
+claude mcp add leevar -- npx -y https://github.com/forevercrab321-svg/leevar-battery/releases/download/v0.1.0/leevar-mcp-0.1.0.tgz
 ```
 
-Claude Code: `claude mcp add leevar -- npx -y leevar-mcp`. Running from source
-is described in [its README](packages/mcp/README.md). Samples go to the hosted service, are graded there by third-party
+That installs it from the v0.1.0 release (it is not on the npm registry yet).
+The Claude Desktop / Cursor config and running from source are in
+[its README](packages/mcp/README.md). Samples go to the hosted service, are graded there by third-party
 language models, and are deleted 30 days after the scan; to keep everything on
 your machine except the calls to your own model provider, use `deno task scan`
 above instead.
