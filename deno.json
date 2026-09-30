@@ -10,11 +10,12 @@
     "./providers": "./packages/providers/src/index.ts"
   },
   "tasks": {
+    "doctor": "deno run --deny-net --allow-read --allow-env=OPENAI_API_KEY,ANTHROPIC_API_KEY,GEMINI_API_KEY,DEEPSEEK_API_KEY,OPENROUTER_API_KEY,LLM_API_KEY cli/doctor.ts",
     "demo": "deno run --allow-read cli/scan.ts --mock --transcript examples/transcript-support-bot.json --agent-name demo-support-bot --agent-type 'Customer support'",
     "scan": "deno run --allow-read --allow-env --allow-net cli/scan.ts",
     "example": "deno run --allow-read examples/render-example.ts",
     "test": "deno test --allow-read packages/ cli/ examples/",
-    "check": "deno check cli/scan.ts examples/render-example.ts"
+    "check": "deno check cli/scan.ts cli/doctor.ts examples/render-example.ts"
   },
   "fmt": {
     "exclude": ["examples/*.md"]
