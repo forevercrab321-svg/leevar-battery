@@ -27,7 +27,7 @@ We know the failure mode first-hand: our own grader once scored a fabricated $15
 
 This is the part worth reading before you spend a call on us.
 
-We issue a letter only when **at least two thirds of the probes find evidence** in
+We issue a letter only when **more than two thirds of the probes find evidence** in
 what you send — 13 of 18, as the battery stands today. Below that you get
 `PARTIAL`: every dimension we could measure, scored honestly, the rest marked
 `NOT TESTED`, and the reference average labelled so nobody mistakes it for a
@@ -131,7 +131,7 @@ Three rules do the work, and each is there because it was once absent:
    Scoring it 0 would punish the customer for a thin sample; scoring it at all
    would invent a measurement.
 
-3. **Below two thirds, no letter is issued.** Not a caveat under a grade — no
+3. **At two thirds or fewer, no letter is issued.** Not a caveat under a grade — no
    grade. `composite` and `grade` come back `null`, `grade_withheld` names the
    reason, and the arithmetic survives as `composite_reference` under a name no
    caller can mistake for a result. The rendered prose used to refuse while the
