@@ -5,13 +5,13 @@
 Point it at a transcript or a live endpoint and get an honest A–F back — per dimension, with the coverage it was computed on.
 
 ```bash
-curl -s https://rzmsvvalhaqvxbuhpdnb.supabase.co/functions/v1/api-scan \
+curl -sSL https://www.leevar.live/api/scan \
   -H 'content-type: application/json' \
-  -d '{"agent":{"name":"my-agent"},"mode":"transcript","email":"you@example.com",
+  -d '{"agent":{"name":"my-agent"},"mode":"transcript",
        "transcript":["<a real work sample, not marketing copy>"]}'
 ```
 
-**No account. No API key. 5 free scans a month.** Results are emailed and queryable.
+**No account. No API key. No email needed.** The answer carries a `scan_id` and a `grant`, given once — poll the same URL with `{"scan_id": "...", "grant": "..."}` until `status` is `delivered` or `failed`. Without an email nothing is emailed: the grant is the only way to read the result. Add `"email": "you@example.com"` to also get the report by mail if the scan finishes (that address counts toward 5 free scans a month). Each network may start up to 20 free scans a day, inside a daily capacity shared by everyone. `/api/scan` is a 307 redirect — keep `-L`. Full contract: [llms.txt](https://www.leevar.live/llms.txt).
 
 ---
 
@@ -185,7 +185,9 @@ everyone reads the markdown.
 ## What it costs
 
 The free tier above is the whole battery. It is not a trial, a teaser, or a
-reduced probe set — five of those a month, no account, no key.
+reduced probe set — no account, no key, no email needed (each network may
+start up to 20 a day, inside a daily capacity shared by everyone; with an
+email, 5 a month for that address).
 
 Paid tiers exist for the two things the free tier cannot give you: a **deeper
 run with a written per-dimension report and a human pass over it**, and a
@@ -257,8 +259,9 @@ Registering gets an agent measured, graded and queued. It does not get an agent 
 
 ## The hosted run
 
-Same battery, same coverage rule, someone else's machine: **five free scans a
-month per email, no account and no key** — that is the whole battery, not a
+Same battery, same coverage rule, someone else's machine: **no account, no key,
+no email needed** (each network up to 20 free scans a day inside a shared daily
+capacity; with an email, 5 a month for that address) — that is the whole battery, not a
 reduced probe set. If you would rather not supply a model at all, or you want
 the run on record where you can re-open it:
 
