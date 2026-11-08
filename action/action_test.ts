@@ -1153,3 +1153,14 @@ Deno.test("README: the action examples pin a commit, never @main", async () => {
   assert(uses.length > 0, "no example uses the action");
   for (const ref of uses) assertEquals(ref, "<commit-sha>");
 });
+
+Deno.test("self-test: the hosted job asks for no email, and files under an internal name", async () => {
+  // An @leevar.internal address cannot receive mail, so asking for a report
+  // there only bounces. The job polls; the agent name marks it as ours.
+  const selftest = await Deno.readTextFile(
+    here("../.github/workflows/action-selftest.yml"),
+  );
+  const hostedJob = selftest.slice(selftest.indexOf("\n  hosted:"));
+  assert(!/^\s+email:/m.test(hostedJob), "the hosted self-test passes email");
+  assertMatch(hostedJob, /^\s+agent-name: leevar-internal-\S+$/m);
+});

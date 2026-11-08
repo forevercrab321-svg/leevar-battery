@@ -8,9 +8,10 @@ name: action self-test
 #
 # `hosted` runs only when started by hand (workflow_dispatch). It sends the
 # example transcript to LEEVAR's hosted service, which spends one scan from the
-# free daily capacity everyone shares, and one of the internal address's five a
-# month. On every push it would spend that capacity on ourselves and make this
-# repository's checks depend on the service being up.
+# free daily capacity everyone shares. On every push it would spend that
+# capacity on ourselves and make this repository's checks depend on the service
+# being up. It asks for no email: it reads the result by polling, and an
+# @leevar.internal address cannot receive the report, so asking only bounces.
 
 on:
   push:
@@ -86,9 +87,9 @@ jobs:
         with:
           transcript: examples/transcript-support-bot.json
           fail-on: never
-          # Our own runs carry an internal address and an internal agent name,
-          # so they are never counted as outside usage.
-          email: action-test@leevar.internal
+          # No email (see the top of this file). With no internal address on
+          # the row, the agent name is what marks it as ours: anything counting
+          # outside usage must leave out leevar-internal-* names.
           agent-name: leevar-internal-action-selftest
           agent-type: Customer support
 
