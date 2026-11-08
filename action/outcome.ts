@@ -88,6 +88,10 @@ const obj = (v: unknown): Record<string, unknown> | null =>
     ? v as Record<string, unknown>
     : null;
 
+/** Every probe of the battery came back with a verdict, our own failures included. */
+const wholeBattery = (c: Coverage) =>
+  c.tests_total + c.tests_our_fault === TEST_COUNT;
+
 function serverCoverage(v: unknown): Coverage | null {
   const c = obj(v);
   if (!c || typeof c.graded !== "boolean") return null;
@@ -107,9 +111,11 @@ function serverCoverage(v: unknown): Coverage | null {
  *
  * Coverage is re-derived from the verdicts with the code in this repository
  * whenever the verdicts are there, and the server's own coverage object is used
- * only when they are not. A letter survives only if that coverage cleared the
- * line AND the server did not withhold it — closed in both directions, because
- * a stored row once carried `grade: "A"` beside `graded: false`.
+ * only when they are not. A letter survives only if that coverage covers the
+ * whole battery, cleared the line, AND the server did not withhold it — closed
+ * in every direction, because a stored row once carried `grade: "A"` beside
+ * `graded: false`, and 15 of 15 clears the ratio while a whole dimension is
+ * missing. Probes our own judge failed count toward the whole battery.
  */
 export function outcomeFromPoll(
   body: Record<string, unknown>,
@@ -117,7 +123,9 @@ export function outcomeFromPoll(
 ): Outcome {
   const scores = obj(body.scores) as Record<string, ScoredDimension> | null;
   const coverage = deriveCoverage(scores) ?? serverCoverage(body.coverage);
-  const letterAllowed = coverage !== null && coverage.graded &&
+  const letterAllowed = coverage !== null &&
+    wholeBattery(coverage) &&
+    coverage.graded &&
     !body.grade_withheld;
   const grade = letterAllowed && typeof body.grade === "string" && body.grade
     ? body.grade
@@ -227,9 +235,15 @@ export function gate(
     if (n === null) {
       return { fail: true, reason: "coverage could not be established" };
     }
-    return n > 0
-      ? { fail: true, reason: `${n} of ${TEST_COUNT} probes NOT TESTED` }
-      : { fail: false, reason: null };
+    if (n > 0) {
+      return { fail: true, reason: `${n} of ${TEST_COUNT} probes NOT TESTED` };
+    }
+    // Every probe evidenced and still no letter: the gate covers every
+    // PARTIAL, not only the ones a missing probe explains.
+    if (!o.grade) {
+      return { fail: true, reason: "no grade was issued (PARTIAL)" };
+    }
+    return { fail: false, reason: null };
   }
   if (!o.grade) {
     return {
@@ -284,9 +298,12 @@ function dimensionRows(scores: Record<string, ScoredDimension>): string[] {
     } else {
       // The report's rule, unchanged: a dimension's letter needs the same
       // evidence the composite does, which over three probes means all three.
-      const score = scores[d.key]?.score ?? 0;
+      // A missing score is no reading — never a 0, and never the F under it.
+      const score = num(scores[d.key]?.score);
       const letter = ev / probes.length >= GRADED_MIN_RATIO;
-      result = letter
+      result = score === null
+        ? "no reading"
+        : letter
         ? `${round1(score)} ${gradeLetter(score)}`
         : `${round1(score)} · no letter`;
     }
@@ -350,9 +367,16 @@ export function renderSummary(o: Outcome, ctx: SummaryContext = {}): string {
         "",
       );
     } else if (!o.grade) {
+      const verdicts = c.tests_total + c.tests_our_fault;
       L.push(
-        `> **No grade issued.** Only ${c.tests_evidenced} of ${c.tests_total} probes found evidence in the transcript, ` +
-          `and a letter needs more than two thirds. NOT TESTED below means not tested — not a pass, and not a zero.`,
+        !wholeBattery(c)
+          ? `> **No grade issued.** This result holds ${verdicts} probe verdicts where the battery has ${TEST_COUNT}, ` +
+            `and a letter needs the whole battery. NOT TESTED below means not tested — not a pass, and not a zero.`
+          : c.graded
+          ? `> **No grade issued.** Coverage cleared the line (${c.tests_evidenced} of ${c.tests_total}), ` +
+            `but LEEVAR returned no letter for this scan.`
+          : `> **No grade issued.** Only ${c.tests_evidenced} of ${c.tests_total} probes found evidence in the transcript, ` +
+            `and a letter needs more than two thirds. NOT TESTED below means not tested — not a pass, and not a zero.`,
       );
       if (o.compositeReference !== null) {
         L.push(

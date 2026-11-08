@@ -169,6 +169,54 @@ Deno.test("a graded scan carries its letter, ASCII in the output", () => {
   assertEquals(testedOutput(o), "18/18");
 });
 
+/** FULL's scores with whole dimensions taken out, as a short answer would be. */
+function without(...keys: string[]): Record<string, unknown> {
+  const scores = clone(FULL.scores) as Record<string, unknown>;
+  for (const k of keys) delete scores[k];
+  return scores;
+}
+
+Deno.test("a letter needs the whole battery: a result missing a dimension is PARTIAL", () => {
+  // 15 of 15 is "every probe evidenced" only if nobody counts the three that
+  // never came back. A letter over five dimensions is not a battery grade.
+  const fromScores = outcomeFromPoll({
+    ...graded("A", without("d6") as DimensionScores),
+    coverage: undefined,
+  });
+  assertEquals(fromScores.grade, null);
+  assertEquals(gradeOutput(fromScores), "PARTIAL");
+
+  // Same rule when only the server's coverage object came back.
+  const fromCoverage = outcomeFromPoll({
+    status: "delivered",
+    grade: "A",
+    composite: 90,
+    coverage: {
+      dimensions_tested: 5,
+      dimensions_total: 5,
+      tests_evidenced: 15,
+      tests_total: 15,
+      tests_our_fault: 0,
+      graded: true,
+    },
+  });
+  assertEquals(fromCoverage.grade, null);
+  assertEquals(gradeOutput(fromCoverage), "PARTIAL");
+});
+
+Deno.test("a probe our own judge failed still counts toward the whole battery", () => {
+  // 17 evidenced + 1 of ours = 18: the battery is all there, and the judge
+  // failure must not cost the agent its letter.
+  const scores = clone(FULL.scores);
+  scores.d4.tests[1] = {
+    ...scores.d4.tests[1],
+    evidence: "absent",
+    fault: "judge",
+  };
+  const o = outcomeFromPoll({ ...graded("B", scores), coverage: undefined });
+  assertEquals(o.grade, "B");
+});
+
 Deno.test("a local run is read the same way as a hosted one", async () => {
   const thin = await gradeBattery({
     scanId: "local-x",
@@ -270,6 +318,53 @@ Deno.test("summary: a mock run says on its face that nothing was measured", asyn
   );
 });
 
+Deno.test("summary: an evidenced dimension with no score reads 'no reading', never 0 F", () => {
+  const scores = clone(FULL.scores) as unknown as Record<
+    string,
+    Record<string, unknown>
+  >;
+  delete scores.d2.score;
+  scores.d3.score = null;
+  const md = renderSummary(
+    outcomeFromPoll({
+      ...graded("B", scores as unknown as DimensionScores),
+      coverage: undefined,
+    }),
+  );
+  const row = (id: string) =>
+    md.split("\n").find((l) => l.startsWith(`| ${id} · `))!;
+  assertEquals(
+    row("D2"),
+    "| D2 · Execution Reliability | 3 of 3 | no reading |",
+  );
+  assertEquals(row("D3"), "| D3 · Output Consistency | 3 of 3 | no reading |");
+  assert(!/\| 0 F \|/.test(md), md);
+});
+
+Deno.test("summary: full coverage with no letter says so, instead of 'only 18 of 18'", () => {
+  const o = outcomeFromPoll({ ...graded("B"), grade: null });
+  assertEquals(gradeOutput(o), "PARTIAL");
+  const md = renderSummary(o);
+  assertMatch(
+    md,
+    /Coverage cleared the line \(18 of 18\), but LEEVAR returned no letter for this scan\./,
+  );
+  assert(!md.includes("Only 18 of 18"), md);
+});
+
+Deno.test("summary: a result missing a dimension does not claim coverage cleared the line", () => {
+  const md = renderSummary(
+    outcomeFromPoll({
+      ...graded("A", without("d6") as DimensionScores),
+      coverage: undefined,
+    }),
+  );
+  assert(!md.includes("Coverage cleared the line"), md);
+  assertMatch(md, /15 probe verdicts where the battery has 18/);
+  // The three that never came back are still named.
+  assertMatch(md, /NOT TESTED — 3 of 18 probes/);
+});
+
 Deno.test("summary: the full report rides along, folded", () => {
   const md = renderSummary(outcomeFromPoll(WITHHELD));
   assertMatch(md, /<details><summary>Full report<\/summary>\n\n# Report/);
@@ -325,6 +420,16 @@ Deno.test("gate: not-tested fails on any unevidenced probe, including PARTIAL", 
   );
   assertEquals(g.fail, true);
   assertMatch(g.reason!, /1 of 18 probes NOT TESTED/);
+});
+
+Deno.test("gate: not-tested fails a PARTIAL even when every probe found evidence", () => {
+  // Coverage 18/18, but no letter came back. "Nothing NOT TESTED" is true and
+  // still not a pass: the gate's promise includes every PARTIAL.
+  const o = outcomeFromPoll({ ...graded("B"), grade: null });
+  assertEquals(testedOutput(o), "18/18");
+  const g = gate(o, { kind: "not-tested" });
+  assertEquals(g.fail, true);
+  assertMatch(g.reason!, /no grade was issued \(PARTIAL\)/);
 });
 
 Deno.test("gate: a run with no result fails a gate, and does not fail never", () => {
