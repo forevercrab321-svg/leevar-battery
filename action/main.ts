@@ -5,9 +5,10 @@
 //
 // WHEN THIS STEP FAILS
 // --------------------
-//   - Wrong inputs (no transcript, an unknown mode, a fail-on the scale does
-//     not have, local mode with no provider): always. A setting that silently
-//     does nothing is worse than a red step.
+//   - Wrong inputs (no transcript, a transcript that resolves outside the
+//     workspace or is not a regular file under 5 MiB, an unknown mode, a
+//     fail-on the scale does not have, local mode with no provider): always.
+//     A setting that silently does nothing is worse than a red step.
 //   - The result does not clear `fail-on`: only when `fail-on` gates.
 //   - No result at all (LEEVAR refused, was unreachable, timed out, or failed
 //     the scan; a provider failed mid-run): only when `fail-on` gates — a gate
@@ -126,6 +127,93 @@ function readInputs(env: (n: string) => string | undefined): Inputs {
   };
 }
 
+/**
+ * The largest transcript this step reads: 5 MiB. Far above any real set of
+ * conversation samples, and far below what would stall a runner or post a
+ * runaway body to LEEVAR.
+ */
+export const MAX_TRANSCRIPT_BYTES = 5 * 1024 * 1024;
+
+const isPermissionError = (err: unknown) =>
+  err instanceof Deno.errors.NotCapable ||
+  err instanceof Deno.errors.PermissionDenied;
+
+/**
+ * Refuse a transcript this step must not read, before anything reads it.
+ *
+ * A pull request can commit a symlink, and `--allow-read` does not follow one:
+ * Deno checks the path it is handed, not where the link points. So the path is
+ * resolved here and must land inside the workspace, links included. Then it
+ * must be a regular file under `maxBytes`, so a device such as /dev/zero, a
+ * FIFO or a directory is refused instead of read forever.
+ *
+ * A relative path is joined to the workspace, as documented ("relative to the
+ * repository root"), not to the working directory. Returns the path to read:
+ * that joined path, not the resolved one, because when the workspace path
+ * itself runs through a symlink the resolved path is outside the
+ * `--allow-read` scope even though it is the same file.
+ */
+export async function checkTranscript(
+  transcript: string,
+  workspace: string,
+  maxBytes: number = MAX_TRANSCRIPT_BYTES,
+): Promise<string> {
+  const windows = Deno.build.os === "windows";
+  const sep = windows ? "\\" : "/";
+  const absolute = windows
+    ? /^([A-Za-z]:)?[\\/]/.test(transcript)
+    : transcript.startsWith("/");
+  const path = absolute
+    ? transcript
+    : (workspace.endsWith(sep) ? workspace : workspace + sep) + transcript;
+  let ws: string;
+  try {
+    ws = await Deno.realPath(workspace);
+  } catch (err) {
+    throw new InputError(
+      `GITHUB_WORKSPACE: ${workspace} cannot be read (${
+        err instanceof Error ? err.message : String(err)
+      }).`,
+    );
+  }
+  let real: string;
+  try {
+    real = await Deno.realPath(path);
+  } catch (err) {
+    if (err instanceof Deno.errors.NotFound) {
+      throw new InputError(
+        `transcript: ${transcript} does not exist (paths are relative to the repository root).`,
+      );
+    }
+    if (isPermissionError(err)) {
+      throw new InputError(
+        `transcript: ${transcript} is outside the repository (${ws}); this step reads only the workspace.`,
+      );
+    }
+    throw new InputError(
+      `transcript: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const root = ws.endsWith(sep) ? ws : ws + sep;
+  if (real !== ws && !real.startsWith(root)) {
+    throw new InputError(
+      `transcript: ${transcript} resolves outside the repository (${real}); links out of the workspace are refused.`,
+    );
+  }
+  const info = await Deno.stat(path);
+  if (!info.isFile) {
+    throw new InputError(
+      `transcript: ${transcript} is not a regular file.`,
+    );
+  }
+  if (info.size > maxBytes) {
+    throw new InputError(
+      `transcript: ${transcript} is ${info.size} bytes; this step reads at most ${maxBytes}.`,
+    );
+  }
+  return path;
+}
+
 /** Workflow-command data escaping, so a message cannot end its own line. */
 const escapeData = (s: string) =>
   s.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
@@ -193,9 +281,13 @@ export async function runAction(io: ActionIo): Promise<number> {
     failOn = inputs.failOn;
     if (inputs.provider === "mock") engine = "mock";
 
+    const transcriptPath = await checkTranscript(
+      inputs.transcript,
+      io.env("GITHUB_WORKSPACE") || Deno.cwd(),
+    );
     let samples: string[];
     try {
-      samples = await readSamples(inputs.transcript);
+      samples = await readSamples(transcriptPath);
     } catch (err) {
       if (err instanceof Deno.errors.NotFound) {
         throw new InputError(

@@ -10,6 +10,7 @@ import {
   assert,
   assertEquals,
   assertMatch,
+  assertRejects,
   assertThrows,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
@@ -23,7 +24,12 @@ import {
   testedOutput,
 } from "./outcome.ts";
 import { POLL_FIRST_MS, POLL_MAX_MS, runHosted } from "./hosted.ts";
-import { type ActionIo, runAction } from "./main.ts";
+import {
+  type ActionIo,
+  checkTranscript,
+  MAX_TRANSCRIPT_BYTES,
+  runAction,
+} from "./main.ts";
 import { gradeBattery } from "../packages/scanner-core/src/grade-battery.ts";
 import { mockJudge } from "../cli/mock-judge.ts";
 import { ProviderError } from "../packages/providers/src/index.ts";
@@ -578,6 +584,8 @@ Deno.test("hosted: the timeout is a deadline, and it is reported as one", async 
 /* ------------------------------------------------------------------------ */
 
 const GH_ENV = {
+  // The repository root: every fixture these tests read lives under it.
+  GITHUB_WORKSPACE: here("../"),
   GITHUB_OUTPUT: "/gh/output",
   GITHUB_STEP_SUMMARY: "/gh/summary",
   RUNNER_TEMP: "/gh/tmp",
@@ -760,6 +768,105 @@ Deno.test("action: a value from the server cannot write a second output line or 
 });
 
 /* ------------------------------------------------------------------------ */
+/* the transcript stays in the workspace                                     */
+/* ------------------------------------------------------------------------ */
+
+// A pull request can add a symlink. Checked out, `evals/t.json -> /etc/…` is a
+// path inside the repository that reads a file outside it, and hosted mode
+// would send that file to a third party. `--allow-read` does not stop it: Deno
+// checks the path it is given, not where the link goes.
+const WS = here("./fixtures/workspace");
+
+Deno.test("transcript: a link out of the workspace is refused before anything is read or sent", async () => {
+  const m = memIo({
+    GITHUB_WORKSPACE: WS,
+    INPUT_TRANSCRIPT: `${WS}/escape.json`,
+  });
+  // memIo's fetch throws if it is called: nothing may leave the runner.
+  assertEquals(await runAction(m.io), 1);
+  assertEquals(m.outputs().status, "error");
+  const err = m.out.find((l) => l.startsWith("::error::")) ?? "";
+  assertMatch(
+    err,
+    /transcript: .*escape\.json resolves outside the repository/,
+  );
+  assertMatch(err, /examples\/transcript-support-bot\.json/);
+  assertMatch(err, /links out of the workspace are refused/);
+});
+
+Deno.test("transcript: a file inside the workspace is read", async () => {
+  const m = memIo({
+    GITHUB_WORKSPACE: WS,
+    INPUT_TRANSCRIPT: `${WS}/inside.json`,
+    INPUT_MODE: "local",
+    INPUT_PROVIDER: "mock",
+  });
+  assertEquals(await runAction(m.io), 0);
+  assertEquals(m.outputs().status, "complete");
+});
+
+Deno.test("transcript: a relative path is read from the workspace, whatever the working directory", async () => {
+  // Deno resolves a relative path against the real working directory; when the
+  // workspace path itself runs through a symlink, that lands outside the
+  // --allow-read scope. The documented contract is "relative to the
+  // repository root", so the root is what it is joined to.
+  const m = memIo({
+    GITHUB_WORKSPACE: WS,
+    INPUT_TRANSCRIPT: "inside.json",
+    INPUT_MODE: "local",
+    INPUT_PROVIDER: "mock",
+  });
+  assertEquals(await runAction(m.io), 0, m.out.join("\n"));
+  assertEquals(m.outputs().status, "complete");
+});
+
+Deno.test("transcript: a directory is refused as not a regular file", async () => {
+  const m = memIo({
+    GITHUB_WORKSPACE: WS,
+    INPUT_TRANSCRIPT: WS,
+    INPUT_MODE: "local",
+    INPUT_PROVIDER: "mock",
+  });
+  assertEquals(await runAction(m.io), 1);
+  assertMatch(
+    m.out.find((l) => l.startsWith("::error::")) ?? "",
+    /is not a regular file/,
+  );
+});
+
+Deno.test("transcript: a file over the size cap is refused, not read", async () => {
+  // The cap is a parameter so this can be shown without a 5 MiB fixture.
+  const size = (await Deno.stat(SAMPLES)).size;
+  await assertRejects(
+    () => checkTranscript(SAMPLES, here("../"), size - 1),
+    Error,
+    `is ${size} bytes`,
+  );
+  await checkTranscript(SAMPLES, here("../"), size);
+  assertEquals(MAX_TRANSCRIPT_BYTES, 5 * 1024 * 1024);
+});
+
+Deno.test({
+  name: "transcript: a device such as /dev/zero is refused, not read forever",
+  ignore: Deno.build.os === "windows",
+  fn: async () => {
+    // Outside the repository, it is refused on that ground first.
+    await assertRejects(
+      () => checkTranscript("/dev/zero", here("../")),
+      Error,
+      "resolves outside the repository",
+    );
+    // With the containment rule out of the way (a workspace of "/": Deno
+    // guards /dev itself behind --allow-all), the device is still refused.
+    await assertRejects(
+      () => checkTranscript("/dev/zero", "/"),
+      Error,
+      "is not a regular file",
+    );
+  },
+});
+
+/* ------------------------------------------------------------------------ */
 /* action.yml stays wired to the code                                        */
 /* ------------------------------------------------------------------------ */
 
@@ -787,6 +894,13 @@ Deno.test("action.yml: every input reaches the script and every output comes fro
     );
     assert(main.includes(`"${env}"`), `${env} is never read`);
   }
+  // The step reads the caller's workspace and nothing else on the runner.
+  assert(
+    yml.includes('--allow-read="$GITHUB_WORKSPACE"'),
+    "--allow-read is not narrowed to the workspace",
+  );
+  const run = yml.slice(yml.indexOf("run: >-"));
+  assert(!/--allow-read(\s|$)/m.test(run), "a bare --allow-read is left");
   assertEquals(outputs.sort(), [
     "grade",
     "report",

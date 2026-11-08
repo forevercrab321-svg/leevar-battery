@@ -12,7 +12,9 @@ inputs:
   transcript:
     description: >-
       Path to the transcript in your repository: a .txt file (one conversation)
-      or a .json file holding an array of conversation strings.
+      or a .json file holding an array of conversation strings. It must be a
+      regular file of at most 5 MiB that resolves inside the workspace; a
+      symlink out of the repository is refused.
     required: true
   mode:
     description: >-
@@ -102,10 +104,12 @@ runs:
         INPUT_MODEL: ${{ inputs.model }}
         INPUT_BASE_URL: ${{ inputs.base-url }}
         INPUT_POLL_TIMEOUT_MINUTES: ${{ inputs.poll-timeout-minutes }}
-      # --no-config: never pick up the calling repository's deno.json. Writes
-      # are limited to the three files GitHub hands this step.
+      # --no-config: never pick up the calling repository's deno.json. Reads
+      # are limited to the caller's workspace (main.ts also refuses a
+      # transcript whose links resolve outside it, which --allow-read alone
+      # does not catch); writes to the three files GitHub hands this step.
       run: >-
         deno run --no-config --no-lock
-        --allow-read --allow-env --allow-net
+        --allow-read="$GITHUB_WORKSPACE" --allow-env --allow-net
         --allow-write="$GITHUB_OUTPUT,$GITHUB_STEP_SUMMARY,$RUNNER_TEMP"
         "$GITHUB_ACTION_PATH/action/main.ts"
