@@ -175,8 +175,10 @@ export async function runHosted(
       "hosted",
       scanId,
       `LEEVAR queued ${scanId} but issued no poll ticket, so this step cannot read the result.` +
+        // Not the address itself: this lands in the job summary, which is
+        // public on a public repository, and a secret is masked only in logs.
         (req.email
-          ? ` If the scan finishes, the report is emailed to ${req.email}.`
+          ? " If the scan finishes, the report is emailed to the address given in `email`."
           : ""),
     );
   }
@@ -254,7 +256,7 @@ export async function runHosted(
       Math.round(req.timeoutMs / 60_000)
     } minutes (${polls} polls). ${scanId} may still finish` +
       (req.email
-        ? `; if it does, the report is emailed to ${req.email}.`
+        ? "; if it does, the report is emailed to the address given in `email`."
         : ". This step gave no email, and the poll ticket is not kept after the step ends, so the result cannot be read from here."),
   );
 }

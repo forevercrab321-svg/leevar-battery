@@ -34,9 +34,18 @@ inputs:
   email:
     description: >-
       Hosted mode, optional. Also email the report to this address if the scan
-      finishes. The address then counts toward its 5 free scans a month.
+      finishes. The address then counts toward its 5 free scans a month. Pass
+      it from a secret to keep it out of the log.
     required: false
     default: ""
+  summary:
+    description: >-
+      What the job summary carries. full (default): the per-dimension table and
+      the full report, folded. table: the table only. The report output file
+      has the full report either way. On a public repository the job summary
+      is public.
+    required: false
+    default: full
   agent-name:
     description: Name the scan is filed under. Default, the repository name.
     required: false
@@ -89,7 +98,7 @@ runs:
   steps:
     - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
       with:
-        deno-version: v2.x
+        deno-version: v2.9.3
 
     - id: run
       shell: bash
@@ -104,6 +113,7 @@ runs:
         INPUT_MODEL: ${{ inputs.model }}
         INPUT_BASE_URL: ${{ inputs.base-url }}
         INPUT_POLL_TIMEOUT_MINUTES: ${{ inputs.poll-timeout-minutes }}
+        INPUT_SUMMARY: ${{ inputs.summary }}
       # --no-config: never pick up the calling repository's deno.json. Reads
       # are limited to the caller's workspace (main.ts also refuses a
       # transcript whose links resolve outside it, which --allow-read alone

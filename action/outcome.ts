@@ -342,6 +342,8 @@ function dimensionRows(scores: Record<string, ScoredDimension>): string[] {
 export interface SummaryContext {
   failOn?: FailOn;
   gate?: { fail: boolean; reason: string | null };
+  /** Fold the full report in at the end. Default true. */
+  includeReport?: boolean;
 }
 
 export function renderSummary(o: Outcome, ctx: SummaryContext = {}): string {
@@ -459,7 +461,7 @@ export function renderSummary(o: Outcome, ctx: SummaryContext = {}): string {
     );
   }
 
-  if (o.reportMd) {
+  if (o.reportMd && ctx.includeReport !== false) {
     L.push(
       "<details><summary>Full report</summary>",
       "",

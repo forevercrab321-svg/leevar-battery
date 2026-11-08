@@ -68,6 +68,16 @@ interface Inputs {
   model?: string;
   baseUrl?: string;
   timeoutMs: number;
+  /** What the job summary carries. The report file always has everything. */
+  summary: SummaryMode;
+}
+
+type SummaryMode = "full" | "table";
+
+function parseSummary(raw: string): SummaryMode {
+  const v = raw || "full";
+  if (v === "full" || v === "table") return v;
+  throw new InputError(`summary: "${raw}" is not full or table.`);
 }
 
 function readInputs(env: (n: string) => string | undefined): Inputs {
@@ -124,6 +134,7 @@ function readInputs(env: (n: string) => string | undefined): Inputs {
     model: get("INPUT_MODEL") || undefined,
     baseUrl: get("INPUT_BASE_URL") || undefined,
     timeoutMs: minutes * 60_000,
+    summary: parseSummary(get("INPUT_SUMMARY")),
   };
 }
 
@@ -270,6 +281,7 @@ async function runLocal(
 
 export async function runAction(io: ActionIo): Promise<number> {
   let failOn: FailOn = { kind: "never" };
+  let summaryMode: SummaryMode = "full";
   let engine: Engine = (io.env("INPUT_MODE") ?? "").trim() === "local"
     ? "local"
     : "hosted";
@@ -279,6 +291,7 @@ export async function runAction(io: ActionIo): Promise<number> {
   try {
     const inputs = readInputs(io.env);
     failOn = inputs.failOn;
+    summaryMode = inputs.summary;
     if (inputs.provider === "mock") engine = "mock";
 
     const transcriptPath = await checkTranscript(
@@ -340,12 +353,17 @@ export async function runAction(io: ActionIo): Promise<number> {
   const verdict = configError
     ? { fail: true, reason: outcome.message }
     : gate(outcome, failOn);
-  const summary = renderSummary(outcome, { failOn, gate: verdict });
+  const report = renderSummary(outcome, { failOn, gate: verdict });
+  // The job summary is public on a public repository; `summary: table` keeps
+  // the folded report (which may quote the transcript) out of it.
+  const summary = summaryMode === "table"
+    ? renderSummary(outcome, { failOn, gate: verdict, includeReport: false })
+    : report;
 
   const reportPath = `${io.env("RUNNER_TEMP") || "."}/leevar-battery-${
     (io.env("GITHUB_ACTION") || "report").replace(/[^A-Za-z0-9_.-]/g, "_")
   }.md`;
-  await io.writeFile(reportPath, summary);
+  await io.writeFile(reportPath, report);
   const summaryFile = io.env("GITHUB_STEP_SUMMARY");
   if (summaryFile) await io.appendFile(summaryFile, summary);
 

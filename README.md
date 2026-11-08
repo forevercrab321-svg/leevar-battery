@@ -188,24 +188,44 @@ everyone reads the markdown.
 pointed at a transcript in your repository:
 
 ```yaml
-- uses: actions/checkout@v7
-- id: battery
-  uses: forevercrab321-svg/leevar-battery@main
-  with:
-    transcript: evals/transcripts.json   # a .json array of conversations, or one .txt
-    fail-on: never                       # or: not-tested, grade-below:B
+on:
+  push:
+    paths: [evals/transcripts.json]   # when the transcript changes, not on every push
+  workflow_dispatch:                   # and by hand; a weekly `schedule:` works too
+
+jobs:
+  battery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - id: battery
+        uses: forevercrab321-svg/leevar-battery@<commit-sha>  # pin a commit; see Releases
+        with:
+          transcript: evals/transcripts.json   # a .json array of conversations, or one .txt
+          fail-on: never                       # or: not-tested, grade-below:B
 ```
 
+Replace `<commit-sha>` with the full 40-character SHA of a commit on `main`
+that has `action.yml`, so the step cannot change under you. The `v0.1.0`
+release predates the action and does not contain it.
+
+**Each hosted run uses one free scan** from a shared daily allowance: each
+network may start 20 a day, inside a daily capacity shared by everyone (with
+`email`, also one of that address's 5 a month). That is why the example runs
+when the transcript changes, by hand or on a schedule, and not on every push
+or pull request.
+
 The default `hosted` mode needs no key and no secret. It sends the transcript
-to `https://www.leevar.live/api/scan` once, under the free limits above, and
-never resubmits: a refusal such as a 429 is reported, not retried. It then
+to `https://www.leevar.live/api/scan` once and never resubmits: a refusal such
+as a 429 is reported, not retried, and a submission with no answer within 30
+seconds is reported as possibly queued and counted, not sent again. It then
 polls with backoff for up to `poll-timeout-minutes` (default 20). The samples
 are graded by third-party language models and deleted 30 days after the scan.
 To keep the transcript off our service, grade on the runner with your own
 provider instead:
 
 ```yaml
-- uses: forevercrab321-svg/leevar-battery@main
+- uses: forevercrab321-svg/leevar-battery@<commit-sha>  # pin a commit; see Releases
   with:
     transcript: evals/transcripts.json
     mode: local
@@ -214,14 +234,26 @@ provider instead:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
+The transcript must be a regular file of at most 5 MiB that resolves inside
+your repository. A path or symlink that leads out of the workspace is refused,
+and the step has read access to nothing else on the runner.
+
 The job summary has one row per dimension. A dimension with no evidence reads
 `NOT TESTED` and carries no number; one with only some probes evidenced shows
 its reading and `no letter`; every unevidenced probe is named.
 
+**On a public repository the job summary is public**, and by default it
+carries the full report, folded, which may quote your transcript. Set
+`summary: table` to keep the table and leave the report out; the `report`
+output file on the runner has it either way. Inputs are printed in the step's
+log, so pass `email` from a secret if you do not want the address there
+(`email: ${{ secrets.LEEVAR_REPORT_EMAIL }}`). The step never writes the
+address into the summary.
+
 | `fail-on` | The step fails when |
 |---|---|
 | `never` (default) | never, on the result |
-| `not-tested` | any of the 18 probes is NOT TESTED, which includes every PARTIAL |
+| `not-tested` | any of the 18 probes is NOT TESTED, or no letter was issued: every PARTIAL |
 | `grade-below:B` | the letter is below B, or no letter was issued (PARTIAL) |
 
 Outputs: `scan-id`, `grade` (a letter, or `PARTIAL`), `tested` (e.g. `12/18`),
@@ -229,9 +261,9 @@ Outputs: `scan-id`, `grade` (a letter, or `PARTIAL`), `tested` (e.g. `12/18`),
 `error` or `timeout`). Wrong inputs always fail the step. When there is no
 result, because LEEVAR refused or could not be reached, the scan failed, or
 the wait ran out, the step fails only if `fail-on` gates; under `never` it is a
-warning. The action installs Deno 2.x on the runner. It has no tagged release
-yet, so `@main` follows this branch; pin a commit SHA if the step must not
-change under you.
+warning. The action installs Deno 2.9.3 with `denoland/setup-deno`, which adds
+it to the job's `PATH`: later steps in the same job that run `deno` get that
+version.
 
 ## What it costs
 

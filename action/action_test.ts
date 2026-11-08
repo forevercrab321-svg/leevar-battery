@@ -634,7 +634,10 @@ Deno.test("hosted: a queued scan with no poll ticket is not pretended to be read
   assertEquals(o.status, "error");
   assertEquals(o.scanId, "SCN-2026-5556");
   assertMatch(o.message!, /no poll ticket/);
-  assertMatch(o.message!, /emailed to dev@example\.com/);
+  // The address is not repeated: this message lands in the job summary, which
+  // is public on a public repository, and a secret is masked only in the log.
+  assertMatch(o.message!, /emailed to the address given in `email`/);
+  assert(!o.message!.includes("dev@example.com"), o.message!);
   assertEquals(f.calls.length, 1);
 });
 
@@ -703,6 +706,17 @@ Deno.test("hosted: the timeout is a deadline, and it is reported as one", async 
   // Never past the deadline, and still exactly one submission.
   assertEquals(clock.now(), 5 * 60_000);
   assertEquals(f.calls.filter((c) => !("scan_id" in c.body)).length, 1);
+});
+
+Deno.test("hosted: a timeout with an email says where the report goes without repeating the address", async () => {
+  const f = scriptedFetch((_b, n) =>
+    n === 1 ? QUEUED : [200, { status: "running" }]
+  );
+  const o = await hosted(f, { email: "dev@example.com", timeoutMs: 60_000 })
+    .run;
+  assertEquals(o.status, "timeout");
+  assertMatch(o.message!, /emailed to the address given in `email`/);
+  assert(!o.message!.includes("dev@example.com"), o.message!);
 });
 
 /* ------------------------------------------------------------------------ */
@@ -835,6 +849,36 @@ Deno.test("action: LEEVAR being unavailable warns under never and fails a gate",
   assert(gated.out.some((l) => l.startsWith("::error::")));
 });
 
+Deno.test("action: summary: table keeps the full report out of the job summary, and in the report file", async () => {
+  // A public repository's job summary is public. The table says what was
+  // and was not tested; the folded report may quote the transcript.
+  const run = async (summary?: string) => {
+    const f = scriptedFetch((_b, n) => n === 1 ? QUEUED : [200, WITHHELD]);
+    const m = memIo({
+      INPUT_TRANSCRIPT: SAMPLES,
+      ...(summary ? { INPUT_SUMMARY: summary } : {}),
+    }, f);
+    assertEquals(await runAction(m.io), 0);
+    return m;
+  };
+  const table = await run("table");
+  const step = table.files.get("/gh/summary")!;
+  assert(!step.includes("Full report"), step);
+  assertMatch(step, /\| D1 · /);
+  assertMatch(step, /PARTIAL — 12\/18 tests evidenced/);
+  assertMatch(
+    table.files.get("/gh/tmp/leevar-battery-battery.md")!,
+    /<details><summary>Full report<\/summary>/,
+  );
+  // The default is unchanged: the report rides along, folded.
+  for (const m of [await run(), await run("full")]) {
+    assertMatch(
+      m.files.get("/gh/summary")!,
+      /<details><summary>Full report<\/summary>/,
+    );
+  }
+});
+
 Deno.test("action: wrong inputs fail the step even under never", async () => {
   const cases: Record<string, string>[] = [
     {},
@@ -849,6 +893,7 @@ Deno.test("action: wrong inputs fail the step even under never", async () => {
       INPUT_PROVIDER: "not-a-provider",
     },
     { INPUT_TRANSCRIPT: SAMPLES, INPUT_POLL_TIMEOUT_MINUTES: "soon" },
+    { INPUT_TRANSCRIPT: SAMPLES, INPUT_SUMMARY: "everything" },
   ];
   for (const env of cases) {
     const m = memIo({ INPUT_FAIL_ON: "never", ...env });
@@ -1084,4 +1129,27 @@ Deno.test("action.yml: every input reaches the script and every output comes fro
       `${name} is never written`,
     );
   }
+});
+
+Deno.test("action.yml: Deno is pinned to one exact release, the one the self-test runs", async () => {
+  // "v2.x" would install whatever 2.x is newest on the day, under a user's
+  // permissions, without anyone here having run it.
+  const yml = await Deno.readTextFile(here("../action.yml"));
+  const selftest = await Deno.readTextFile(
+    here("../.github/workflows/action-selftest.yml"),
+  );
+  const pinned = /^\s+deno-version: (v\d+\.\d+\.\d+)\s*$/m.exec(yml)?.[1];
+  assert(pinned, "action.yml: deno-version is not an exact version");
+  const versions = [...selftest.matchAll(/deno-version: (\S+)/g)].map((m) =>
+    m[1]
+  );
+  assert(versions.length > 0);
+  for (const v of versions) assertEquals(v, pinned);
+});
+
+Deno.test("README: the action examples pin a commit, never @main", async () => {
+  const readme = await Deno.readTextFile(here("../README.md"));
+  const uses = [...readme.matchAll(/leevar-battery@(\S+)/g)].map((m) => m[1]);
+  assert(uses.length > 0, "no example uses the action");
+  for (const ref of uses) assertEquals(ref, "<commit-sha>");
 });
