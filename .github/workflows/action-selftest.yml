@@ -1,0 +1,103 @@
+name: action self-test
+
+# Runs action.yml the way a user's workflow would.
+#
+# `local-mock` runs on every push and pull request: the mock judge, so no
+# network, no model and no key. It proves the composite action installs, runs,
+# writes its outputs and summary, and fails the step when fail-on says so.
+#
+# `hosted` runs only when started by hand (workflow_dispatch). It sends the
+# example transcript to LEEVAR's hosted service, which spends one scan from the
+# free daily capacity everyone shares, and one of the internal address's five a
+# month. On every push it would spend that capacity on ourselves and make this
+# repository's checks depend on the service being up.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: deno task test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+      - run: deno task test
+      - run: deno task check
+
+  local-mock:
+    name: action, local mode, mock judge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: battery
+        uses: ./
+        with:
+          transcript: examples/transcript-support-bot.json
+          mode: local
+          provider: mock
+          fail-on: never
+
+      - name: the outputs say PARTIAL, and the report names what was not tested
+        env:
+          STATUS: ${{ steps.battery.outputs.status }}
+          GRADE: ${{ steps.battery.outputs.grade }}
+          TESTED: ${{ steps.battery.outputs.tested }}
+          REPORT: ${{ steps.battery.outputs.report }}
+        run: |
+          set -eu
+          test "$STATUS" = complete
+          test "$GRADE" = PARTIAL
+          test "$TESTED" = 12/18
+          grep -q 'NOT TESTED' "$REPORT"
+
+      - id: gated
+        uses: ./
+        continue-on-error: true
+        with:
+          transcript: examples/transcript-support-bot.json
+          mode: local
+          provider: mock
+          fail-on: not-tested
+
+      - name: fail-on not-tested failed that step
+        env:
+          OUTCOME: ${{ steps.gated.outcome }}
+        run: test "$OUTCOME" = failure
+
+  hosted:
+    name: action, hosted mode (manual only)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: battery
+        uses: ./
+        with:
+          transcript: examples/transcript-support-bot.json
+          fail-on: never
+          # Our own runs carry an internal address and an internal agent name,
+          # so they are never counted as outside usage.
+          email: action-test@leevar.internal
+          agent-name: leevar-internal-action-selftest
+          agent-type: Customer support
+
+      - name: a result came back
+        env:
+          SCAN_ID: ${{ steps.battery.outputs.scan-id }}
+          STATUS: ${{ steps.battery.outputs.status }}
+          GRADE: ${{ steps.battery.outputs.grade }}
+          TESTED: ${{ steps.battery.outputs.tested }}
+        run: |
+          echo "$SCAN_ID: status $STATUS, grade $GRADE, tested $TESTED"
+          test "$STATUS" = complete

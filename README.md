@@ -182,6 +182,57 @@ came from was **stored** with `grade: "A"` in the same object that says
 contradiction is why `GradedResult` now nulls both fields instead of hoping
 everyone reads the markdown.
 
+## Use it in CI
+
+`action.yml` at the root of this repository is a GitHub Action. One step,
+pointed at a transcript in your repository:
+
+```yaml
+- uses: actions/checkout@v7
+- id: battery
+  uses: forevercrab321-svg/leevar-battery@main
+  with:
+    transcript: evals/transcripts.json   # a .json array of conversations, or one .txt
+    fail-on: never                       # or: not-tested, grade-below:B
+```
+
+The default `hosted` mode needs no key and no secret. It sends the transcript
+to `https://www.leevar.live/api/scan` once, under the free limits above, and
+never resubmits: a refusal such as a 429 is reported, not retried. It then
+polls with backoff for up to `poll-timeout-minutes` (default 20). The samples
+are graded by third-party language models and deleted 30 days after the scan.
+To keep the transcript off our service, grade on the runner with your own
+provider instead:
+
+```yaml
+- uses: forevercrab321-svg/leevar-battery@main
+  with:
+    transcript: evals/transcripts.json
+    mode: local
+    provider: anthropic        # openai, gemini, deepseek, openrouter, ollama, openai-compatible
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+The job summary has one row per dimension. A dimension with no evidence reads
+`NOT TESTED` and carries no number; one with only some probes evidenced shows
+its reading and `no letter`; every unevidenced probe is named.
+
+| `fail-on` | The step fails when |
+|---|---|
+| `never` (default) | never, on the result |
+| `not-tested` | any of the 18 probes is NOT TESTED, which includes every PARTIAL |
+| `grade-below:B` | the letter is below B, or no letter was issued (PARTIAL) |
+
+Outputs: `scan-id`, `grade` (a letter, or `PARTIAL`), `tested` (e.g. `12/18`),
+`report` (path to the markdown summary) and `status` (`complete`, `failed`,
+`error` or `timeout`). Wrong inputs always fail the step. When there is no
+result, because LEEVAR refused or could not be reached, the scan failed, or
+the wait ran out, the step fails only if `fail-on` gates; under `never` it is a
+warning. The action installs Deno 2.x on the runner. It has no tagged release
+yet, so `@main` follows this branch; pin a commit SHA if the step must not
+change under you.
+
 ## What it costs
 
 The free tier above is the whole battery. It is not a trial, a teaser, or a

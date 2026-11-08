@@ -1,0 +1,111 @@
+name: LEEVAR Battery
+description: >-
+  Grade an AI agent's conversation transcripts on LEEVAR's 18-test reliability
+  battery. Dimensions the transcript cannot evidence are reported NOT TESTED,
+  and below the coverage line no grade is issued.
+author: LEEVAR
+branding:
+  icon: check-square
+  color: gray-dark
+
+inputs:
+  transcript:
+    description: >-
+      Path to the transcript in your repository: a .txt file (one conversation)
+      or a .json file holding an array of conversation strings.
+    required: true
+  mode:
+    description: >-
+      hosted (default): LEEVAR's free hosted run; needs no key and no secret.
+      local: grade on this runner against a model provider you choose (set
+      provider; the provider's key comes from its usual environment variable).
+    required: false
+    default: hosted
+  fail-on:
+    description: >-
+      When the step fails on the result. never (default); not-tested (any of
+      the 18 probes NOT TESTED, which includes every PARTIAL); or
+      grade-below:<letter>, e.g. grade-below:B (a PARTIAL, which has no letter,
+      fails it too).
+    required: false
+    default: never
+  email:
+    description: >-
+      Hosted mode, optional. Also email the report to this address if the scan
+      finishes. The address then counts toward its 5 free scans a month.
+    required: false
+    default: ""
+  agent-name:
+    description: Name the scan is filed under. Default, the repository name.
+    required: false
+    default: ""
+  agent-type:
+    description: What the agent does, e.g. "Customer support". Helps the examiner.
+    required: false
+    default: ""
+  provider:
+    description: >-
+      Local mode: openai, anthropic, gemini, deepseek, openrouter, ollama,
+      openai-compatible, or mock (no model at all; the numbers are a hash, not
+      a measurement).
+    required: false
+    default: ""
+  model:
+    description: Local mode, optional. Override the provider's default model.
+    required: false
+    default: ""
+  base-url:
+    description: Local mode. The endpoint; required for openai-compatible.
+    required: false
+    default: ""
+  poll-timeout-minutes:
+    description: Hosted mode. How long to wait for the result before giving up.
+    required: false
+    default: "20"
+
+outputs:
+  scan-id:
+    description: The scan id (hosted), or a local-<date> label.
+    value: ${{ steps.run.outputs.scan-id }}
+  grade:
+    description: >-
+      The letter (A+ ... F, with an ASCII minus in A-), PARTIAL when no grade was
+      issued, or empty when there is no result.
+    value: ${{ steps.run.outputs.grade }}
+  tested:
+    description: Probes with evidence over probes graded, e.g. 12/18.
+    value: ${{ steps.run.outputs.tested }}
+  report:
+    description: Path to the markdown summary (with the full report folded in).
+    value: ${{ steps.run.outputs.report }}
+  status:
+    description: complete, failed (LEEVAR failed the scan), error, or timeout.
+    value: ${{ steps.run.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+      with:
+        deno-version: v2.x
+
+    - id: run
+      shell: bash
+      env:
+        INPUT_TRANSCRIPT: ${{ inputs.transcript }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_EMAIL: ${{ inputs.email }}
+        INPUT_AGENT_NAME: ${{ inputs.agent-name }}
+        INPUT_AGENT_TYPE: ${{ inputs.agent-type }}
+        INPUT_PROVIDER: ${{ inputs.provider }}
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_BASE_URL: ${{ inputs.base-url }}
+        INPUT_POLL_TIMEOUT_MINUTES: ${{ inputs.poll-timeout-minutes }}
+      # --no-config: never pick up the calling repository's deno.json. Writes
+      # are limited to the three files GitHub hands this step.
+      run: >-
+        deno run --no-config --no-lock
+        --allow-read --allow-env --allow-net
+        --allow-write="$GITHUB_OUTPUT,$GITHUB_STEP_SUMMARY,$RUNNER_TEMP"
+        "$GITHUB_ACTION_PATH/action/main.ts"
