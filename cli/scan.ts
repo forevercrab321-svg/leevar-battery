@@ -107,7 +107,7 @@ function str(v: string | boolean | undefined): string | undefined {
 /** A .txt file is one sample; a .json array is several. Anything else is an
  * error rather than a guess — silently treating a malformed JSON file as one
  * long string would grade the agent on its own punctuation. */
-async function readSamples(path: string): Promise<string[]> {
+export async function readSamples(path: string): Promise<string[]> {
   const raw = await Deno.readTextFile(path);
   if (!path.toLowerCase().endsWith(".json")) return [raw];
   let parsed: unknown;
