@@ -23,7 +23,12 @@ import {
   renderSummary,
   testedOutput,
 } from "./outcome.ts";
-import { POLL_FIRST_MS, POLL_MAX_MS, runHosted } from "./hosted.ts";
+import {
+  DEFAULT_API_URL,
+  POLL_FIRST_MS,
+  POLL_MAX_MS,
+  runHosted,
+} from "./hosted.ts";
 import {
   type ActionIo,
   checkTranscript,
@@ -597,6 +602,22 @@ Deno.test("hosted: a refused submission is reported plainly and never resubmitte
   assertMatch(o.message!, /not resubmit/);
 });
 
+Deno.test("hosted: a submission with no answer in 30 s may have been counted, and is not resubmitted", async () => {
+  // The POST timed out, not the network: the scan may well be queued and its
+  // free scan spent. "Could not reach" would invite a retry that spends another.
+  const f = scriptedFetch(() =>
+    new DOMException("Signal timed out.", "TimeoutError")
+  );
+  const o = await hosted(f).run;
+  assertEquals(o.status, "error");
+  assertEquals(f.calls.length, 1);
+  assertMatch(
+    o.message!,
+    /no answer within 30 s; the scan may have been queued and counted\. This step does not resubmit\./,
+  );
+  assert(!/could not reach/.test(o.message!), o.message!);
+});
+
 Deno.test("hosted: an unreachable service is said to be unreachable", async () => {
   const f = scriptedFetch(() => new TypeError("fetch failed"));
   const o = await hosted(f).run;
@@ -870,6 +891,46 @@ Deno.test("action: a value from the server cannot write a second output line or 
   assertEquals(lines.filter((l) => l.startsWith("grade=")), ["grade="]);
   assertEquals(m.outputs().status, "error");
   assert(!m.out.some((l) => l.startsWith("::add-mask::x")), m.out.join("\n"));
+});
+
+Deno.test("action: a result this step cannot read is no result, not a crash", async () => {
+  // Each of these once threw out of the step: in deriveCoverage (a null
+  // dimension, a null verdict) or in the summary table (tests not a list).
+  const malformed: unknown[] = [
+    { d1: null },
+    { d1: { score: 90, tests: 5 } },
+    { d1: { score: 90, tests: [null] } },
+    { d1: { score: 90, tests: [7] } },
+  ];
+  for (const scores of malformed) {
+    const f = scriptedFetch((_b, n) =>
+      n === 1 ? QUEUED : [200, { ...WITHHELD, scores }]
+    );
+    const m = memIo({ INPUT_TRANSCRIPT: SAMPLES }, f);
+    assertEquals(await runAction(m.io), 0, JSON.stringify(scores));
+    assertEquals(m.outputs().status, "error", JSON.stringify(scores));
+    assertEquals(m.outputs()["scan-id"], "SCN-2026-5555");
+    assertEquals(m.outputs().grade, "");
+    assertMatch(
+      m.files.get("/gh/summary")!,
+      /LEEVAR answered with a result this step could not read/,
+    );
+  }
+});
+
+Deno.test("action: the endpoint is LEEVAR's; an environment variable cannot redirect the transcript", async () => {
+  // LEEVAR_API_URL is set on the job by anyone who edits the workflow, or by
+  // a step before this one. It was read, so it could send the transcript to
+  // any host, over plain http too.
+  const f = scriptedFetch((_b, n) => n === 1 ? QUEUED : [200, WITHHELD]);
+  const m = memIo({
+    INPUT_TRANSCRIPT: SAMPLES,
+    LEEVAR_API_URL: "http://attacker.example/scan",
+  }, f);
+  assertEquals(await runAction(m.io), 0);
+  assert(f.calls.length > 0);
+  assert(f.calls.every((c) => c.url === DEFAULT_API_URL), f.calls[0].url);
+  assert(!m.out.some((l) => l.includes("attacker.example")));
 });
 
 /* ------------------------------------------------------------------------ */

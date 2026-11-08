@@ -88,6 +88,30 @@ const obj = (v: unknown): Record<string, unknown> | null =>
     ? v as Record<string, unknown>
     : null;
 
+/**
+ * The `scores` object of a poll answer, or null when there is none. Throws on
+ * one this file cannot read safely — a dimension or a verdict that is not an
+ * object, or `tests` that is not a list — rather than let deriveCoverage or
+ * the summary table throw halfway through.
+ */
+function readScores(v: unknown): Record<string, ScoredDimension> | null {
+  if (v === null || v === undefined) return null;
+  const scores = obj(v);
+  if (!scores) throw new Error("scores is not an object");
+  for (const dim of Object.values(scores)) {
+    const d = obj(dim);
+    if (!d) throw new Error("a dimension in scores is not an object");
+    if (d.tests === undefined) continue;
+    if (!Array.isArray(d.tests)) {
+      throw new Error("a dimension's tests is not a list");
+    }
+    if (!d.tests.every((t) => obj(t) !== null)) {
+      throw new Error("a verdict in tests is not an object");
+    }
+  }
+  return scores as Record<string, ScoredDimension>;
+}
+
 /** Every probe of the battery came back with a verdict, our own failures included. */
 const wholeBattery = (c: Coverage) =>
   c.tests_total + c.tests_our_fault === TEST_COUNT;
@@ -116,12 +140,15 @@ function serverCoverage(v: unknown): Coverage | null {
  * in every direction, because a stored row once carried `grade: "A"` beside
  * `graded: false`, and 15 of 15 clears the ratio while a whole dimension is
  * missing. Probes our own judge failed count toward the whole battery.
+ *
+ * Throws when `scores` has a shape this file cannot read; the caller turns
+ * that into "no result", never into a guess.
  */
 export function outcomeFromPoll(
   body: Record<string, unknown>,
   polledId: string | null = null,
 ): Outcome {
-  const scores = obj(body.scores) as Record<string, ScoredDimension> | null;
+  const scores = readScores(body.scores);
   const coverage = deriveCoverage(scores) ?? serverCoverage(body.coverage);
   const letterAllowed = coverage !== null &&
     wholeBattery(coverage) &&

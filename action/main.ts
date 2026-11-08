@@ -303,7 +303,9 @@ export async function runAction(io: ActionIo): Promise<number> {
     }
 
     if (inputs.mode === "hosted") {
-      const apiUrl = io.env("LEEVAR_API_URL") || DEFAULT_API_URL;
+      // Fixed, not configurable: an environment variable that could redirect
+      // the transcript is one any earlier step could set. Tests inject `fetch`.
+      const apiUrl = DEFAULT_API_URL;
       const chars = samples.reduce((n, s) => n + s.length, 0);
       io.stdout(
         `Sending ${samples.length} sample${

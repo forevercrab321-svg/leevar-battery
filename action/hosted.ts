@@ -47,6 +47,8 @@ interface Answer {
   status: number;
   body: Record<string, unknown>;
   networkError?: string;
+  /** The request ran out of REQUEST_TIMEOUT_MS: sent, perhaps acted on, unanswered. */
+  timedOut?: boolean;
 }
 
 /** One POST. Never throws: a dead network and a non-JSON page are answers too. */
@@ -70,6 +72,7 @@ async function post(
       status: 0,
       body: {},
       networkError: err instanceof Error ? err.message : String(err),
+      timedOut: (err as { name?: unknown } | null)?.name === "TimeoutError",
     };
   }
   let json: unknown = null;
@@ -119,6 +122,19 @@ export async function runHosted(
     acq: "github-action",
   });
 
+  if (created.timedOut) {
+    // Not "could not reach": the request went out, and the scan may be queued
+    // with its free scan spent. Saying otherwise invites a rerun that spends
+    // another.
+    return noResult(
+      "error",
+      "hosted",
+      null,
+      `LEEVAR at ${req.apiUrl} gave no answer within ${
+        REQUEST_TIMEOUT_MS / 1000
+      } s; the scan may have been queued and counted. This step does not resubmit.`,
+    );
+  }
   if (created.status === 0) {
     return noResult(
       "error",
@@ -204,7 +220,16 @@ export async function runHosted(
     }
     const status = String(r.body.status ?? "");
     if (status === "graded" || status === "delivered") {
-      return outcomeFromPoll(r.body, scanId);
+      try {
+        return outcomeFromPoll(r.body, scanId);
+      } catch {
+        return noResult(
+          "error",
+          "hosted",
+          scanId,
+          "LEEVAR answered with a result this step could not read.",
+        );
+      }
     }
     if (status === "failed") {
       const failure = (r.body.failure ?? null) as Failure | null;
