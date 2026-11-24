@@ -16,7 +16,6 @@ import { gradeLetter, round1 } from "./grade.ts";
 import {
   hasSelfReportedToolOutput,
   liveProbe,
-  ProbeError,
   transcriptEvidence,
 } from "./probe.ts";
 import { JUDGE_POOL, pooled } from "./pool.ts";

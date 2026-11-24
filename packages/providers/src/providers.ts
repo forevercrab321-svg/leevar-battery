@@ -165,4 +165,4 @@ export const DEFAULT_KEY_ENV: Record<string, string | null> = {
   "openai-compatible": "LLM_API_KEY",
 };
 
-export const PROVIDER_IDS = Object.keys(PROVIDERS);
+export const PROVIDER_IDS: string[] = Object.keys(PROVIDERS);

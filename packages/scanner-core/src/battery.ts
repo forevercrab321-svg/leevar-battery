@@ -283,7 +283,7 @@ export function testCount(): number {
 }
 
 /** Total tests in the battery (6 × 3 = 18). */
-export const TEST_COUNT = testCount();
+export const TEST_COUNT: number = testCount();
 
 /** The battery's published identity, without the size. */
 export const BATTERY_ID = "DX-FULL-V6";

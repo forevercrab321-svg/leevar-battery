@@ -14,7 +14,7 @@
 //     the caller retries and then reports as ungraded — OUR fault, counted
 //     separately from the customer's thin evidence.
 
-import type { TestResult, TestSpec } from "./battery.ts";
+import type { TestResult } from "./battery.ts";
 import type { TestVerdict } from "./types.ts";
 import type { JudgeContext } from "./prompts/types.ts";
 
