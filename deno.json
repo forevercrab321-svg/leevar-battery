@@ -17,13 +17,15 @@
     "scan": "deno run --allow-read --allow-env --allow-net cli/scan.ts",
     "example": "deno run --allow-read examples/render-example.ts",
     "fixes": "deno run --allow-write=docs/fixes docs/fixes/generate.ts",
+    "check-code": "deno run --allow-read cli/check-code.ts",
     "test": "deno test --allow-read packages/ cli/ examples/ action/",
-    "check": "deno check cli/scan.ts examples/render-example.ts action/main.ts docs/fixes/generate.ts"
+    "check": "deno check cli/scan.ts cli/check-code.ts examples/render-example.ts action/main.ts docs/fixes/generate.ts"
   },
   "fmt": {
-    "exclude": ["examples/*.md"]
+    "exclude": ["examples/*.md", "packages/code-check/testdata/"]
   },
   "lint": {
+    "exclude": ["packages/code-check/testdata/"],
     "rules": {
       "exclude": ["no-explicit-any"]
     }
