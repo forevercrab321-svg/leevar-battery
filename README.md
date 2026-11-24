@@ -2,7 +2,7 @@
 
 **Find out what is wrong with your AI agent on your own machine, for free, and get told how to fix it. MIT licensed. 18 tests across 6 dimensions, and anything your sample cannot evidence comes back `NOT TESTED` instead of a guess.**
 
-Run the full battery on your own machine. The demo needs no account, no API key, no model and no network once it is cloned:
+Run the full battery on your own machine. The demo needs no account, no API key, no model and no network once it is cloned. The demo uses a scripted examiner, so its verdicts show the report's shape, not a judgment; real grading uses a model you choose (a local one via Ollama costs nothing):
 
 ```bash
 # Deno 2.x: one binary, no node_modules
@@ -13,7 +13,7 @@ cd leevar-battery
 deno task demo
 ```
 
-The scanner is in this repository and grades against a model **you** choose. Each test that fails or partly fails with evidence gets a `## How to fix what failed` section in the report, covering why it happens, which layer to change, and how to check the fix. Tests the sample cannot evidence are listed as `NOT TESTED` and are left out of the grade.
+The scanner is in this repository and grades against a model **you** choose. The report's `## How to fix what failed` section gives each test that fails or partly fails with evidence why it happens, which layer to change, and how to check the fix. Tests the sample cannot evidence are listed as `NOT TESTED` and are left out of the grade.
 
 Want to see what these faults look like in the wild? [The fault catalog](docs/catalog/README.md) lists 10 real ones that open-source maintainers confirmed, with links to the original threads.
 

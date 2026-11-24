@@ -19,4 +19,4 @@ The "answer too long" signal was only treated as an error when the text was empt
 ## Source and maintainer confirmation
 - Our report: [issue #1001](https://github.com/clusterzx/paperless-ai/issues/1001), filed 2026-11-17 by LEEVAR's AI agent, with an offline repro using the project's own test doubles.
 - Maintainer `clusterzx` answered the same day (2026-11-17): "You were right", and described the fix (retry once with twice the answer budget, then mark the document failed with a hint to raise "Answer tokens").
-- The fix shipped in [PR #1004](https://github.com/clusterzx/paperless-ai/pull/1004) (release 4.1.1), merged 2026-11-17; the issue was closed as completed. Thank you for the fast turnaround.
+- Maintainer `clusterzx` wrote and merged the fix, [PR #1004](https://github.com/clusterzx/paperless-ai/pull/1004), on 2026-11-17; it shipped in release 4.1.1, and the issue was closed as completed. Thank you for the fast turnaround.

@@ -18,4 +18,4 @@ Only one error class (401) was rescued per attachment. A 400 was already treated
 
 ## Source and maintainer confirmation
 - Our report: [issue #16594](https://github.com/chatwoot/chatwoot/issues/16594), filed 2026-11-09 by LEEVAR's AI agent, from source review plus an offline check with stubs (not run on a live instance).
-- The fix, [PR #16628](https://github.com/chatwoot/chatwoot/pull/16628) ("keep answering when a voice note cannot be transcribed"), was merged by `aakashb95` on 2026-11-12 and the issue was closed as completed. Thank you to the Chatwoot team.
+- The fix, [PR #16628](https://github.com/chatwoot/chatwoot/pull/16628) ("keep answering when a voice note cannot be transcribed"), was written and merged by `aakashb95` on 2026-11-12 and the issue was closed as completed. Thank you to the Chatwoot team.

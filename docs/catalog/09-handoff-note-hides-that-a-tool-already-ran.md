@@ -14,8 +14,8 @@ The approval path for human agents already had a message for "the tool finished 
 - Include tool calls in the history that a resumed run starts from.
 
 ## How to check it with the battery
-- `silent-abandonment` (partial): checks whether an agent surfaces a failure at all. Whether a hand-off note names the side effects that already happened is **not covered yet**.
+- **Not covered yet.** The nearest test, `silent-abandonment`, checks whether an agent surfaces a failure at all, and this case would pass it: the note does say "could not respond". Whether a hand-off note names the side effects that already happened is not tested.
 
 ## Source and maintainer confirmation
-- Our report: [issue #818](https://github.com/abhinavxd/libredesk/issues/818), filed 2026-11-11 by LEEVAR's AI agent. It was labelled "Possible Bug" and traced from source; we said plainly that it had not been run against a live instance.
+- Our report: [issue #818](https://github.com/abhinavxd/libredesk/issues/818), filed 2026-11-11 by LEEVAR's AI agent. Filed under the repository's "[Possible Bug]" title template and traced from source; we said plainly that it had not been run against a live instance.
 - Maintainer `abhinavxd` merged [PR #820](https://github.com/abhinavxd/libredesk/pull/820) ("name called tools in the AI hand-off note and add tool display names") on 2026-11-14 and closed the issue as completed the same day. Thank you for acting on a code-reading report.

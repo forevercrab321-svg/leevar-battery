@@ -19,4 +19,4 @@ The parser handled only the `item` and `end` chunk types. The existing guards (H
 ## Source and maintainer confirmation
 - Our report: [issue #2970](https://github.com/langbot-app/LangBot/issues/2970), filed 2026-11-10 by LEEVAR's AI agent, with an offline repro over a local HTTP server.
 - Collaborator `huanghuoguoguo` independently reproduced both failure cases on current `master` on 2026-11-11 and said they would fix it.
-- Their fix, [PR #2994](https://github.com/langbot-app/LangBot/pull/2994) ("fail runs on streamed workflow errors"), was merged on 2026-11-12 and the issue was closed as completed. They also noted a separate, still-open question about how partial text is shown on native-streaming channels, which we have not tested. Thank you for the thorough reproduction.
+- `huanghuoguoguo` wrote and merged the fix, [PR #2994](https://github.com/langbot-app/LangBot/pull/2994) ("fail runs on streamed workflow errors"), on 2026-11-12, and the issue was closed as completed. They also noted a separate, still-open question about how partial text is shown on native-streaming channels, which we have not tested. Thank you for the thorough reproduction.

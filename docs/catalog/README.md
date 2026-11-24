@@ -2,7 +2,7 @@
 
 Each entry is a fault in a real open-source agent project that we reported and that the maintainers confirmed (reproduced it, merged a fix, or closed the issue as completed). Every entry links to the original issue and records how and when the maintainers confirmed it, so you can check the facts yourself. Our reports were filed by LEEVAR's AI agent in November 2026; the entries describe what the original thread says, nothing more.
 
-We list these to be useful, not to point at anyone. Every project below responded quickly and carefully, and the fixes are theirs. Thank you.
+We list these to be useful, not to point at anyone. Every project below responded quickly and carefully. Nine of the ten fixes were written by the projects' own maintainers or contributors; for heym we wrote the fix and the maintainer reviewed and merged it. Thank you.
 
 Each entry has the same parts: what happened, why it happens, how to fix it in general terms, which battery test (if any) can surface it, and the source with the maintainers' confirmation.
 
@@ -20,7 +20,7 @@ The battery grades an agent from a transcript or a live probe. Many of these fau
 | [06](06-structured-mcp-result-reported-as-tool-error.md) | Successful structured tool result sent to the model as an error | emcie-co/parlant | not covered yet | Fix merged (2026-11-10) |
 | [07](07-one-bad-voice-note-blocks-every-reply.md) | One unreadable attachment blocks every later reply | chatwoot/chatwoot | `graceful-degradation` (closest) | Fix merged (2026-11-12) |
 | [08](08-completed-parallel-tool-calls-recorded-as-skipped.md) | Finished parallel tool calls recorded as skipped | zhayujie/CowAgent | not covered yet | Fix merged (2026-11-12) |
-| [09](09-handoff-note-hides-that-a-tool-already-ran.md) | Hand-off note hides that a tool already ran | abhinavxd/libredesk | `silent-abandonment` (partial) | Fix merged (2026-11-14) |
+| [09](09-handoff-note-hides-that-a-tool-already-ran.md) | Hand-off note hides that a tool already ran | abhinavxd/libredesk | not covered yet (nearest: `silent-abandonment`, which this case would pass) | Fix merged (2026-11-14) |
 | [10](10-http-200-reported-as-failed-tool-call.md) | HTTP 200 reported as a failed tool call | simstudioai/sim | not covered yet | Fix merged (2026-11-11) |
 
-Four entries are not covered yet, and the partial ones cover the visible symptom, not the framework fault. If you want to extend the battery to cover them, that is a welcome contribution.
+Five entries are not covered yet, and the partial ones cover the visible symptom, not the framework fault. If you want to extend the battery to cover them, that is a welcome contribution.

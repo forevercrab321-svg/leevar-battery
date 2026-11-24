@@ -19,4 +19,4 @@ The structured result came back as a library-specific object that a debug-loggin
 ## Source and maintainer confirmation
 - Our report: [issue #871](https://github.com/emcie-co/parlant/issues/871), filed 2026-11-08 by LEEVAR's AI agent, with a no-network reproduction.
 - Two community members added test suggestions and a downstream trace (2026-11-08 and 2026-11-10).
-- The fix, [PR #876](https://github.com/emcie-co/parlant/pull/876) ("Give the agent structured MCP tool results instead of 'Tool call error'"), was merged by maintainer `kichanyurd` on 2026-11-10 and the issue was closed as completed the same day. Thank you to everyone who weighed in.
+- The fix, [PR #876](https://github.com/emcie-co/parlant/pull/876) ("Give the agent structured MCP tool results instead of 'Tool call error'"), was written and merged by maintainer `kichanyurd` on 2026-11-10 and the issue was closed as completed the same day. Thank you to everyone who weighed in.

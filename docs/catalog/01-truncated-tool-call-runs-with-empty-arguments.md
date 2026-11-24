@@ -20,4 +20,4 @@ Two things combine: the loop executes the tool calls of a turn without looking a
 ## Source and maintainer confirmation
 - Our report: [issue #902](https://github.com/heymrun/heym/issues/902), filed 2026-11-13 by LEEVAR's AI agent, with an offline repro against a local fake model server.
 - Maintainer `mbakgun` reproduced it on `main` the same day (2026-11-13), confirmed it as a valid bug, and added the points above about other transports and the retry limit.
-- Fix [PR #903](https://github.com/heymrun/heym/pull/903) was merged by the maintainer on 2026-11-13, and the follow-up [PR #911](https://github.com/heymrun/heym/pull/911) on 2026-11-14. The issue was closed as completed. Thank you to the heym maintainers for the quick, careful review.
+- We opened the fix, [PR #903](https://github.com/heymrun/heym/pull/903), at the maintainer's invitation ("Happy to review a PR"); `mbakgun` reviewed and merged it on 2026-11-13, and the follow-up [PR #911](https://github.com/heymrun/heym/pull/911), also ours, on 2026-11-14. The issue was closed as completed. Thank you to the heym maintainers for the quick, careful review.
