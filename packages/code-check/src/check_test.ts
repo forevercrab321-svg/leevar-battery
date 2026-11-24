@@ -22,3 +22,25 @@ Deno.test("a single file can be checked", async () => {
   assert(r.findings.length > 0);
   assertEquals(r.findings[0].file, "agent.py");
 });
+
+Deno.test("test files and test folders are skipped by default, and counted", async () => {
+  const r = await scanPath(TREE);
+  assertEquals(r.testsSkipped, 3);
+  assert(r.findings.every((f) => !/tests?\/|__tests__|\.test\./.test(f.file)));
+});
+
+Deno.test("--include-tests scans them too", async () => {
+  const r = await scanPath(TREE, { includeTests: true });
+  assertEquals(r.filesScanned, 5);
+  assertEquals(r.testsSkipped, 0);
+});
+
+Deno.test("a file that cannot be read is skipped with its reason, and the scan goes on", async () => {
+  const r = await scanPath(TREE, {
+    readFile: (p: string) =>
+      p.endsWith("agent.py") ? Promise.reject(new Error("permission denied")) : Deno.readTextFile(p),
+  });
+  assertEquals(r.filesScanned, 1);
+  assertEquals(r.skipped, [{ file: "agent.py", reason: "permission denied" }]);
+  assert(r.findings.some((f) => f.file === "sub/stream.ts"));
+});

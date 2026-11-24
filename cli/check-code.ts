@@ -13,8 +13,8 @@
 //   3  --fail-on-findings was given and something matched
 
 import { scanPath } from "../packages/code-check/src/check.ts";
-import { renderMarkdown } from "../packages/code-check/src/report.ts";
-import { RULES } from "../packages/code-check/src/rules.ts";
+import { renderJson, renderMarkdown } from "../packages/code-check/src/report.ts";
+import { RULES, RULES_VERSION } from "../packages/code-check/src/rules.ts";
 
 const USAGE = `leevar-battery check-code: offline pattern check for agent code
 
@@ -22,10 +22,13 @@ const USAGE = `leevar-battery check-code: offline pattern check for agent code
 
 <path> is a directory (walked recursively) or one file. Python (.py) and
 TypeScript / JavaScript (.ts .tsx .js .jsx .mjs .cjs .mts .cts) are read.
-node_modules, .git, virtualenvs, build output and vendor folders are skipped.
+node_modules, .git, virtualenvs, build output and vendor folders are skipped,
+and so are test files (test/, tests/, __tests__/, *.test.*, *.spec.*, test_*.py,
+*_test.*, conftest.py) unless --include-tests is given.
 
 OPTIONS
   --exclude <prefix>    Leave out a path, relative to <path>. Repeatable.
+  --include-tests       Check test files too.
   --json                Print the machine result instead of Markdown.
   --fail-on-findings    Exit 3 when anything matched (for CI).
   -h, --help            This.
@@ -45,6 +48,7 @@ export async function main(argv: string[]): Promise<number> {
   const exclude: string[] = [];
   let json = false;
   let failOnFindings = false;
+  let includeTests = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "-h" || a === "--help") {
@@ -52,6 +56,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0;
     } else if (a === "--json") json = true;
     else if (a === "--fail-on-findings") failOnFindings = true;
+    else if (a === "--include-tests") includeTests = true;
     else if (a === "--exclude") {
       const v = argv[++i];
       if (v === undefined || v.startsWith("--")) {
@@ -77,12 +82,12 @@ export async function main(argv: string[]): Promise<number> {
 
   let result;
   try {
-    result = await scanPath(path, { exclude });
+    result = await scanPath(path, { exclude, includeTests });
   } catch (err) {
     console.error(`error: cannot read ${path}: ${err instanceof Error ? err.message : String(err)}`);
     return 1;
   }
-  console.log(json ? JSON.stringify(result, null, 2) : renderMarkdown(result));
+  console.log(json ? renderJson(result, RULES_VERSION) : renderMarkdown(result));
   return failOnFindings && result.findings.length > 0 ? 3 : 0;
 }
 

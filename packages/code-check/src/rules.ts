@@ -11,14 +11,20 @@ import type { Finding, RuleId, RuleInfo } from "./types.ts";
 import {
   blockEnd,
   enclosingFunction,
+  functionOrFile,
   functionScopes,
   indentOf,
   linesIn,
   LOG_LINE,
   type Range,
+  type Scope,
   type SourceFile,
   statementEnd,
 } from "./source.ts";
+
+/** Bumped whenever a rule's matching changes, so a saved JSON result says
+ * which rules produced it. */
+export const RULES_VERSION = "2";
 
 export const CATALOG_BASE_URL =
   "https://github.com/forevercrab321-svg/leevar-battery/blob/main/docs/catalog/";
@@ -122,6 +128,14 @@ const LENGTH =
   /["'`](length|max_tokens|MAX_TOKENS|max_output_tokens|MAX_OUTPUT_TOKENS|incomplete)["'`]|\.(LENGTH|MAX_TOKENS)\b/;
 const EXIT = /\b(return|raise|throw|break|continue)\b/;
 const NEGATED = /!==?|\bnot\s+in\b|!=/;
+const ASSIGN = /^\s*(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=(?!=)(.*)$/;
+const DESTRUCTURE = /^\s*(?:const|let|var)\s*\{([^}]*)\}\s*(?::[^=]+)?=(?!=)(.*)$/;
+const CONDITION = /^\s*(}\s*)?(if|elif|else\s+if|while)\b|\?\s*$/;
+const DEF_LINE = /^\s*((async\s+)?def|(export\s+)?(default\s+)?(async\s+)?function)\b/;
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 function finding(src: SourceFile, rule: RuleId, i: number, detail: string): Finding {
   return { rule, file: src.path, line: i + 1, snippet: src.raw[i].trim(), detail };
@@ -131,73 +145,129 @@ function contains(r: Range, i: number): boolean {
   return r.start <= i && i <= r.end;
 }
 
-const ASSIGN = /^\s*(?:(?:const|let|var)\s+)?([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=(?!=)(.*)$/;
-
-/** Names assigned from an expression matching `re`: `reason = choice.finish_reason`. */
-function aliasesOf(src: SourceFile, r: Range, re: RegExp): string[] {
-  const out: string[] = [];
-  for (let i = r.start; i <= r.end; i++) {
-    const m = src.code[i].match(ASSIGN);
-    if (m && re.test(m[2])) out.push(m[1]);
-  }
-  return out;
-}
-
 function wordsRe(words: string[]): RegExp | null {
-  return words.length ? new RegExp(`\\b(${words.map((w) => w.replace(/\$/g, "\\$")).join("|")})\\b`) : null;
+  return words.length ? new RegExp(`\\b(${words.map(escapeRe).join("|")})\\b`) : null;
 }
-
-const CONDITION = /^\s*(}\s*)?(if|elif|else\s+if|while)\b|\?\s*$/;
 
 // --- 1. tool-call-after-truncation ------------------------------------------
 
 const TOOL_LIST = /\b(tool_calls|toolCalls|tool_uses|toolUses|function_calls|functionCalls)\b/;
-const TOOL_LOOP_PY = /^\s*(async\s+)?for\s+.+\s+in\s+.*\b(tool_calls|tool_uses|function_calls)\b/;
-const TOOL_LOOP_JS = /^\s*for\s*(await\s*)?\(.*\bof\b.*\b(toolCalls|tool_calls|toolUses|tool_uses|functionCalls)\b/;
-const TOOL_ITER_JS = /\b(toolCalls|tool_calls|toolUses|tool_uses|functionCalls)\b[\w$.?!\])]*\s*\.\s*(map|forEach|flatMap)\s*\(/;
-const RUN_CALL =
-  /\b[\w$.]*(execute|run|call|invoke|dispatch|handle|apply)[\w$]*\s*\(|[\w$\]]\s*\[[^\]]+\]\s*\(|\(\s*\*\*\w+\s*\)/i;
+const TOOL_LOOP_PY = /^\s*(async\s+)?for\s+(.+?)\s+in\s+(.*\b(tool_calls|tool_uses|function_calls)\b.*)$/;
+const TOOL_LOOP_JS =
+  /^\s*for\s*(await\s*)?\(\s*(?:const|let|var)?\s*(.+?)\s+of\s+(.*\b(toolCalls|tool_calls|toolUses|tool_uses|functionCalls)\b.*)$/;
+const TOOL_ITER_JS =
+  /\b(toolCalls|tool_calls|toolUses|tool_uses|functionCalls)\b[\w$.?!\])]*\s*\.\s*(map|forEach|flatMap)\s*\(\s*(async\s*)?\(?\s*\{?\s*([\w$]+)?/;
+/** Streamed fragments of tool calls are assembled, not run. */
+const DELTA = /\bdeltas?\b|_delta\b|Delta\b|\bchunk\b/;
+/** The name must start with the verb: `_handle_tool_call`, `executeTool`,
+ * `ainvoke`; not `_function_call_item`, which builds something. */
+const VERB = /^_*a?(execute|run|call|invoke|dispatch|handle|apply)/i;
+const PREDICATE =
+  /^(is|has|can|should|validate|check|assert|ensure|get|build|format|parse|serialize|to)([A-Z_]|$)|[Aa]llowed|[Pp]ermitted|[Vv]alid/;
+const TOOLISH = /tool|function/i;
+const TOOL_INDEX = /\b\w*(tool|func|handler|registry)\w*\s*\[[^\]]+\]\s*\(/i;
 const DIRECT_DISPATCH =
-  /\b[\w$.]*(execute|run|call|invoke|dispatch|handle|process)_?[Tt]ools?(_?[Cc]alls?)?\s*\(/;
-const DEF_LINE = /^\s*((async\s+)?def|(export\s+)?(async\s+)?function)\b/;
+  /\b([\w$.]*(execute|run|call|invoke|dispatch|handle|process)_?[Tt]ools?(_?[Cc]alls?|_?[Ee]xecution|_?[Uu]ses?)?)\s*\(/;
 
-function toolDispatchLines(src: SourceFile, r: Range): number[] {
+/** Does this text call something that runs a tool? */
+function runsTool(text: string, loopVar: string | null): boolean {
+  if (TOOL_INDEX.test(text)) return true;
+  const varRe = loopVar ? new RegExp(`\\b${escapeRe(loopVar)}\\b`) : null;
+  // Lookahead, so a call nested in another call's arguments is seen too.
+  for (const m of text.matchAll(/([\w$.]+)\s*\((?=([^()]*))/g)) {
+    const name = m[1].split(".").pop() ?? "";
+    if (!VERB.test(name) || PREDICATE.test(name)) continue;
+    if (TOOLISH.test(name) || (varRe && varRe.test(m[2]))) return true;
+  }
+  return false;
+}
+
+function toolDispatchLines(src: SourceFile): number[] {
   const out: number[] = [];
-  for (let i = r.start; i <= r.end; i++) {
+  for (let i = 0; i < src.bare.length; i++) {
     const line = src.bare[i];
     if (DEF_LINE.test(line) || LOG_LINE.test(line)) continue;
-    const isLoop = src.lang === "python" ? TOOL_LOOP_PY.test(line) : TOOL_LOOP_JS.test(line);
-    const isIter = src.lang === "js" && TOOL_ITER_JS.test(line);
-    if (isLoop || isIter) {
-      const end = isIter ? statementEnd(src, i) : blockEnd(src, i);
-      for (let k = i; k <= end; k++) {
-        const body = k === i && isLoop ? line.replace(TOOL_LIST, "") : src.bare[k];
-        if (!LOG_LINE.test(src.bare[k]) && RUN_CALL.test(body.replace(/^\s*(async\s+)?for\b[^:]*:/, ""))) {
-          out.push(i);
-          break;
-        }
-      }
+    const loop = src.lang === "python" ? line.match(TOOL_LOOP_PY) : line.match(TOOL_LOOP_JS);
+    const iter = src.lang === "js" ? line.match(TOOL_ITER_JS) : null;
+    if (loop || iter) {
+      const subject = loop ? loop[3] : line;
+      if (DELTA.test(subject)) continue;
+      const loopVar = loop ? (loop[2].match(/^[\w$]+$/)?.[0] ?? null) : (iter?.[4] ?? null);
+      const end = iter ? statementEnd(src, i) : blockEnd(src, i);
+      const first = loop ? line.replace(/^[^:{]*(:|\{)/, "") : line.replace(TOOL_LIST, "");
+      const body = [first, ...src.bare.slice(i + 1, end + 1).filter((l) => !LOG_LINE.test(l))].join("\n");
+      if (runsTool(body, loopVar)) out.push(i);
       continue;
     }
-    if (DIRECT_DISPATCH.test(line)) out.push(i);
+    const d = line.match(DIRECT_DISPATCH);
+    if (d && !PREDICATE.test(d[1].split(".").pop() ?? "")) out.push(i);
   }
   return out;
 }
 
-function checkToolCallAfterTruncation(src: SourceFile, scopes: Range[]): Finding[] {
+/** Type and interface fields: `finishReason?: string;`, `stop_reason: str = ""`. */
+const TYPE_FIELD =
+  /^\s*(readonly\s+)?(finish_?reason|finishReason|stop_?reason|stopReason)\s*\??\s*:\s*[\w$.'"|<>\[\], ]+(=[^=].*)?[;,]?\s*$/;
+
+/** Does this line read the model's stop reason? Writing a field of that name,
+ * declaring its type, or receiving it from a tool run does not count. */
+function readsReason(line: string, reasonRe: RegExp): boolean {
+  if (TYPE_FIELD.test(line)) return false;
+  const d = line.match(DESTRUCTURE);
+  if (d) {
+    if (REASON.test(d[1])) return !/\b[\w$]*tool[\w$]*\s*\(/i.test(d[2]);
+    return reasonRe.test(d[2]);
+  }
+  const a = line.match(ASSIGN);
+  const text = a ? a[2] : line;
+  const stripped = text
+    .replace(new RegExp(`${REASON.source}\\s*\\??\\s*:(?!:)`, "g"), "")
+    .replace(new RegExp(`${REASON.source}\\s*=(?!=)`, "g"), "");
+  return reasonRe.test(stripped);
+}
+
+/** Lines of a multi-line destructure whose value comes from a tool run:
+ * `const {\n finish_reason,\n} = await runToolCall(...)`. A stop reason read
+ * there is the tool runner's result, not the model's turn. */
+function toolRunDestructures(src: SourceFile, fn: Range): Set<number> {
+  const out = new Set<number>();
+  for (let i = fn.start; i <= fn.end; i++) {
+    if (!/^\s*(const|let|var)\s*\{\s*$/.test(src.code[i])) continue;
+    for (let k = i + 1; k <= Math.min(fn.end, i + 60); k++) {
+      const close = src.code[k].match(/^\s*\}\s*(:[^=]+)?=(?!=)(.*)$/);
+      if (!close) continue;
+      if (/\b[\w$]*tool[\w$]*\s*\(/i.test(close[2])) for (let j = i; j <= k; j++) out.add(j);
+      break;
+    }
+  }
+  return out;
+}
+
+function checkToolCallAfterTruncation(src: SourceFile, scopes: Scope[]): Finding[] {
   const out: Finding[] = [];
   const done = new Set<number>(); // one finding per function
-  for (const d of toolDispatchLines(src, { start: 0, end: src.bare.length - 1 })) {
+  for (const d of toolDispatchLines(src)) {
     const fn = enclosingFunction(src, d, scopes);
+    if (!fn) continue; // top-level code: not judged (no reliable scope)
     if (done.has(fn.start)) continue;
-    const reasonNames = aliasesOf(src, fn, REASON);
-    const reasonRe = new RegExp(`${REASON.source}${reasonNames.length ? `|\\b(${reasonNames.join("|")})\\b` : ""}`);
+    const before: Range = { start: fn.start, end: d - 1 };
+    const fromToolRun = toolRunDestructures(src, fn);
+    const reasonNames: string[] = [];
+    for (let i = before.start; i <= before.end; i++) {
+      const m = src.code[i].match(ASSIGN);
+      if (m && readsReason(src.code[i], REASON)) reasonNames.push(m[1]);
+    }
+    const reasonRe = new RegExp(
+      `${REASON.source}${reasonNames.length ? `|\\b(${reasonNames.map(escapeRe).join("|")})\\b` : ""}`,
+    );
     const refs: number[] = [];
-    for (let i = fn.start; i <= fn.end; i++) if (reasonRe.test(src.code[i])) refs.push(i);
-    if (refs.length === 0) continue; // never reads a stop reason: out of scope
+    for (let i = before.start; i <= before.end; i++) {
+      if (!fromToolRun.has(i) && readsReason(src.code[i], reasonRe)) refs.push(i);
+    }
+    if (refs.length === 0) continue; // the stop reason is not read before the calls run: out of scope
     // Flags like `truncated = finish_reason == "length"`.
     const flagNames: string[] = [];
-    for (let i = fn.start; i <= fn.end; i++) {
+    for (let i = before.start; i <= before.end; i++) {
       const m = src.code[i].match(ASSIGN);
       if (m && reasonRe.test(m[2]) && LENGTH.test(m[2])) flagNames.push(m[1]);
     }
@@ -218,7 +288,6 @@ function checkToolCallAfterTruncation(src: SourceFile, scopes: Range[]): Finding
       const lengthy = LENGTH.test(line) || (aboutFlag && !flagNegated);
       const negated = NEGATED.test(line) || flagNegated;
       if (contains({ start: i, end }, d)) {
-        // The dispatch sits inside a branch on the stop reason.
         if (lengthy && !negated) {
           insideLengthBranch = true;
           lengthBranch = i;
@@ -230,86 +299,106 @@ function checkToolCallAfterTruncation(src: SourceFile, scopes: Range[]): Finding
     }
     if (guarded) continue;
     done.add(fn.start);
+    const nearest = refs[refs.length - 1];
     let detail: string;
     if (insideLengthBranch) {
-      detail = `Tool calls are run inside the branch for a length stop (line ${lengthBranch + 1}).`;
+      detail = `Tool calls may run inside the branch for a length stop (line ${lengthBranch + 1}).`;
     } else if (lengthBranch >= 0) {
       detail =
-        `The length stop is noticed at line ${lengthBranch + 1}, but that branch does not stop the turn, and the tool calls are run here.`;
+        `A length stop seems to be noticed at line ${lengthBranch + 1}, but that branch does not appear to stop the turn, so the tool calls here may still run.`;
     } else {
       detail =
-        `The stop reason is read (line ${refs[0] + 1}) but never compared with a length value (\`length\`, \`max_tokens\`, ...) before the tool calls are run here.`;
+        `The stop reason appears to be read at line ${nearest + 1}, and the tool calls here may run without any earlier comparison with a length value (\`length\`, \`max_tokens\`, ...).`;
     }
     out.push(finding(src, "tool-call-after-truncation", d, detail));
   }
   return out;
 }
 
-/** Function scopes, plus the file itself for top-level code. */
-function scopesWithFile(src: SourceFile, scopes: Range[]): Range[] {
-  return [{ start: 0, end: src.bare.length - 1 }, ...scopes];
-}
-
 // --- 2. repaired-json-applied -----------------------------------------------
 
-const REPAIR_MODULES = /^(json_repair|partial_json_parser|dirtyjson|jsonrepair|partial-json|best-effort-json-parser|untruncate-json|json-repair)$/;
-const REPAIR_NAMES =
-  /\b(repair_json|json_repair\.(loads|load|repair_json|from_file)|partial_json_parser\.loads|dirtyjson\.loads|jsonrepair|repairJson|repairJSON|parsePartialJson|untruncateJson)\s*\(/;
+/** Known repair libraries, and the names each one exports that repair JSON.
+ * A bare name counts only when it was imported from one of these. */
+const REPAIR_EXPORTS: Record<string, string[] | null> = {
+  "json_repair": ["repair_json", "loads", "load", "from_file"],
+  "partial_json_parser": ["loads"],
+  "dirtyjson": ["loads"],
+  "jsonrepair": null, // any name imported from it
+  "partial-json": null,
+  "best-effort-json-parser": null,
+  "untruncate-json": null,
+  "json-repair": null,
+  "ai": ["parsePartialJson"],
+  "@ai-sdk/ui-utils": ["parsePartialJson"],
+  "@ai-sdk/provider-utils": ["parsePartialJson"],
+};
+const QUALIFIED_REPAIR = /\b(json_repair\.(loads|load|repair_json|from_file)|partial_json_parser\.loads|dirtyjson\.loads)\s*\(/;
 const TRUNCATION_GUARD =
   /\b(finish_?reason|finishReason|stop_?reason|stopReason)\b|truncat|incomplete|is_?complete|isComplete|repaired-parse|was_?repaired|wasRepaired/i;
 
+/** Regex sources (already escaped) for names that call a repair function. */
 function repairImports(src: SourceFile): string[] {
   const names: string[] = [];
+  const allowed = (mod: string, name: string) => {
+    const list = REPAIR_EXPORTS[mod];
+    return list === null || (list !== undefined && list.includes(name));
+  };
   for (const line of src.code) {
     let m = line.match(/^\s*from\s+([\w.]+)\s+import\s+(.+)$/);
-    if (m && REPAIR_MODULES.test(m[1])) {
+    if (m && m[1] in REPAIR_EXPORTS) {
       for (const part of m[2].replace(/[()]/g, "").split(",")) {
         const p = part.trim().split(/\s+as\s+/);
-        names.push((p[1] ?? p[0]).trim());
+        const orig = p[0].trim();
+        if (orig === "*") {
+          for (const n of REPAIR_EXPORTS[m[1]] ?? []) names.push(escapeRe(n));
+        } else if (/^\w+$/.test(orig) && allowed(m[1], orig)) {
+          names.push(escapeRe((p[1] ?? orig).trim()));
+        }
       }
       continue;
     }
     m = line.match(/^\s*import\s+([\w.]+)(?:\s+as\s+(\w+))?\s*$/);
-    if (m && REPAIR_MODULES.test(m[1])) {
-      names.push(`${m[2] ?? m[1]}\\.\\w+`);
+    if (m && m[1] in REPAIR_EXPORTS) {
+      names.push(`${escapeRe(m[2] ?? m[1])}\\.\\w+`);
       continue;
     }
     m = line.match(/^\s*import\s+(.+?)\s+from\s+["']([^"']+)["']/);
-    if (m && REPAIR_MODULES.test(m[2])) {
+    if (m && m[2] in REPAIR_EXPORTS) {
       const spec = m[1];
       const named = spec.match(/\{([^}]*)\}/);
       if (named) {
         for (const part of named[1].split(",")) {
           const p = part.trim().split(/\s+as\s+/);
-          if (p[0]) names.push((p[1] ?? p[0]).trim());
+          const orig = p[0].trim();
+          if (/^[\w$]+$/.test(orig) && allowed(m[2], orig)) names.push(escapeRe((p[1] ?? orig).trim()));
         }
       }
-      const def = spec.replace(/\{[^}]*\}/, "").replace(/,/g, " ").trim();
-      const ns = def.match(/\*\s+as\s+([\w$]+)/);
-      if (ns) names.push(`${ns[1]}\\.\\w+`);
-      else if (def) names.push(def.split(/\s+/)[0]);
+      const rest = spec.replace(/\{[^}]*\}/, "").replace(/,/g, " ").trim();
+      const ns = rest.match(/\*\s+as\s+([\w$]+)/);
+      if (ns) names.push(`${escapeRe(ns[1])}\\.[\\w$]+`);
+      else if (/^[\w$]+$/.test(rest.split(/\s+/)[0] ?? "") && REPAIR_EXPORTS[m[2]] === null) {
+        names.push(escapeRe(rest.split(/\s+/)[0]));
+      }
     }
   }
   return names.filter(Boolean);
 }
 
-function checkRepairedJson(src: SourceFile, scopes: Range[]): Finding[] {
+function checkRepairedJson(src: SourceFile, scopes: Scope[]): Finding[] {
   const imported = repairImports(src);
-  const importedRe = imported.length
-    ? new RegExp(`(^|[^\\w$.])(${imported.join("|")})\\s*\\(`)
-    : null;
+  const importedRe = imported.length ? new RegExp(`(^|[^\\w$.])(${imported.join("|")})\\s*\\(`) : null;
   const out: Finding[] = [];
   src.bare.forEach((line, i) => {
-    if (/^\s*(import|from)\b/.test(line)) return;
-    if (!REPAIR_NAMES.test(line) && !(importedRe && importedRe.test(line))) return;
+    if (/^\s*(import|from)\b/.test(line) || DEF_LINE.test(line)) return;
+    if (!QUALIFIED_REPAIR.test(line) && !(importedRe && importedRe.test(line))) return;
     if (LOG_LINE.test(line)) return; // display or logging only
-    const fn = enclosingFunction(src, i, scopes);
+    const fn = functionOrFile(src, i, scopes);
     if (TRUNCATION_GUARD.test(linesIn(src, fn))) return;
     out.push(finding(
       src,
       "repaired-json-applied",
       i,
-      "This repairs model output, and nothing in this function checks whether the output was cut off (stop reason, `truncated`, `incomplete`) before the repaired value is used.",
+      "This looks like a JSON repair of model output, and nothing in this function appears to check whether the output was cut off (stop reason, `truncated`, `incomplete`) before the repaired value is used. A check in the caller would not be seen.",
     ));
   });
   return out;
@@ -318,17 +407,22 @@ function checkRepairedJson(src: SourceFile, scopes: Range[]): Finding[] {
 // --- 3. stream-error-ignored ------------------------------------------------
 
 const STREAM_MARKER =
-  /iter_lines|aiter_lines|iter_text|aiter_text|readline|getReader\s*\(|\.split\(\s*["'`]\\n|["'`]data:|for\s+await|async\s+for|EventSource|ndjson|event-stream|\bstream\b/i;
-const RAW_PARSE = /\bjson\.loads\s*\(|\bJSON\.parse\s*\(|\borjson\.loads\s*\(|\bujson\.loads\s*\(/;
+  /iter_lines|aiter_lines|iter_text|aiter_text|readline|getReader\s*\(|\.split\(\s*["'`]\\n|["'`]data:|for\s+await|async\s+for|EventSource|ndjson|event-stream/i;
+const PARSE_CALL = /\b(json\.loads|JSON\.parse|orjson\.loads|ujson\.loads)\s*\(/;
 const TYPE_SUBJECT = /type|event|kind/i;
-const ERROR_LITERAL = /^(error|err|failed|failure|fail|exception|abort|aborted|cancelled|canceled)$/i;
+const ERROR_LITERAL = /error|fail|exception|abort|cancel/i;
 const ERROR_MENTION =
   /["'`](error|failed|failure|errors)["'`]|(?<!(console|logger|logging|log|LOGGER|_logger|warnings))\.(error|err|errors)\b/;
 
 interface Comparison {
   line: number;
   subject: string;
+  base: string;
   literal: string;
+}
+
+function baseOf(subject: string): string {
+  return subject.match(/^[\w$]+/)?.[0] ?? "";
 }
 
 function comparisons(src: SourceFile, fn: Range): Comparison[] {
@@ -340,10 +434,9 @@ function comparisons(src: SourceFile, fn: Range): Comparison[] {
     for (const m of line.matchAll(re)) {
       const subject = (m[1] ?? m[6]).replace(/^(if|elif)\b|^\(+|\s/g, "");
       const literal = m[3] ?? m[5];
-      if (TYPE_SUBJECT.test(subject)) out.push({ line: i, subject, literal });
+      if (TYPE_SUBJECT.test(subject)) out.push({ line: i, subject, base: baseOf(subject), literal });
     }
   }
-  // switch / match statements
   for (let i = fn.start; i <= fn.end; i++) {
     const line = src.code[i];
     const sw = line.match(/^\s*switch\s*\((.+)\)\s*\{?\s*$/) ?? line.match(/^\s*match\s+(.+):\s*$/);
@@ -351,14 +444,28 @@ function comparisons(src: SourceFile, fn: Range): Comparison[] {
     const end = blockEnd(src, i);
     for (let k = i + 1; k <= end; k++) {
       for (const m of src.code[k].matchAll(/\bcase\s+(["'`])([^"'`]+)\1/g)) {
-        out.push({ line: i, subject: `switch:${i}:${sw[1].replace(/\s/g, "")}`, literal: m[2] });
+        const expr = sw[1].replace(/\s/g, "").replace(/^\(+/, "");
+        out.push({ line: i, subject: `switch:${i}:${expr}`, base: baseOf(expr), literal: m[2] });
       }
     }
   }
   return out;
 }
 
-/** Does the if/elif chain or switch starting at `first` end in an else/default that fails? */
+/** Is `name` assigned from a JSON parse inside a loop, in this function? */
+function parsedInLoop(src: SourceFile, fn: Range, name: string): boolean {
+  if (!name) return false;
+  const assign = new RegExp(`(^|[^\\w$.])${escapeRe(name)}\\s*(:[^=]+)?=(?!=)\\s*(await\\s+)?.*${PARSE_CALL.source}`);
+  for (let i = fn.start; i <= fn.end; i++) {
+    if (!assign.test(src.code[i])) continue;
+    for (let h = fn.start; h < i; h++) {
+      if (!/^\s*(async\s+)?(for|while)\b/.test(src.bare[h])) continue;
+      if (blockEnd(src, h) >= i) return true;
+    }
+  }
+  return false;
+}
+
 function hasFailingDefault(src: SourceFile, group: Comparison[]): boolean {
   const first = group[0].line;
   if (group[0].subject.startsWith("switch:")) {
@@ -385,16 +492,15 @@ function hasFailingDefault(src: SourceFile, group: Comparison[]): boolean {
   return false;
 }
 
-function checkStreamErrors(src: SourceFile, scopes: Range[]): Finding[] {
+function checkStreamErrors(src: SourceFile, scopes: Scope[]): Finding[] {
   const out: Finding[] = [];
   const seen = new Set<number>();
-  for (const fn of scopesWithFile(src, scopes)) {
+  for (const fn of scopes) {
     const text = linesIn(src, fn);
-    if (!STREAM_MARKER.test(text) || !RAW_PARSE.test(text)) continue;
+    if (!STREAM_MARKER.test(text) || !PARSE_CALL.test(text)) continue;
     const groups = new Map<string, Comparison[]>();
     for (const c of comparisons(src, fn)) {
-      // Comparisons made in a nested function belong to that function.
-      if (enclosingFunction(src, c.line, scopes).start !== fn.start) continue;
+      if (enclosingFunction(src, c.line, scopes) !== fn) continue; // belongs to a nested function
       const g = groups.get(c.subject) ?? [];
       g.push(c);
       groups.set(c.subject, g);
@@ -403,7 +509,8 @@ function checkStreamErrors(src: SourceFile, scopes: Range[]): Finding[] {
       group.sort((a, b) => a.line - b.line);
       const literals = new Set(group.map((c) => c.literal));
       if (literals.size < 2) continue;
-      if ([...literals].some((l) => ERROR_LITERAL.test(l) || /error|fail/i.test(l))) continue;
+      if ([...literals].some((l) => ERROR_LITERAL.test(l))) continue;
+      if (!parsedInLoop(src, fn, group[0].base)) continue; // not hand-parsed stream events
       if (ERROR_MENTION.test(text)) continue;
       if (hasFailingDefault(src, group)) continue;
       const at = group[0].line;
@@ -413,7 +520,9 @@ function checkStreamErrors(src: SourceFile, scopes: Range[]): Finding[] {
         src,
         "stream-error-ignored",
         at,
-        `This stream parser handles ${[...literals].map((l) => `\`${l}\``).join(", ")}; no branch handles an error event, and unknown event types are skipped rather than failing the run.`,
+        `This looks like a hand-written stream parser that handles ${
+          [...literals].map((l) => `\`${l}\``).join(", ")
+        }; no branch appears to handle an error event, and other event types may be skipped rather than failing the run.`,
       ));
     }
   }
@@ -424,33 +533,33 @@ function checkStreamErrors(src: SourceFile, scopes: Range[]): Finding[] {
 
 const TOOL_CALL =
   /[\w$.]*(call|run|execute|invoke)_?[Tt]ool\w*\s*\(|\btools?\s*\[[^\]]+\]\s*\(|\btool\.(run|arun|invoke|ainvoke|call|execute)\s*\(/;
-const STRICT_SERIALIZE = /\bjson\.dumps\s*\(|\bJSON\.stringify\s*\(/;
+const STRICT_SERIALIZE = /\bjson\.dumps\s*\(/;
 const ERROR_RESULT =
   /["'`][^"'`]*(error|fail)[^"'`]*["'`]|is_?[Ee]rror\s*[:=]\s*(True|true)|success\s*[:=]\s*(False|false)|["']?ok["']?\s*[:=]\s*(False|false)/i;
 
-function checkSuccessAsError(src: SourceFile, scopes: Range[]): Finding[] {
+function checkSuccessAsError(src: SourceFile, scopes: Scope[]): Finding[] {
   const out: Finding[] = [];
-  // 4a: a serialization step after the tool call, inside the same try, whose
-  // catch turns any exception into an error result (catalog 06).
-  for (let t = 0; t < src.bare.length; t++) {
-    const line = src.bare[t];
-    const isTry = src.lang === "python" ? /^\s*try\s*:\s*$/.test(line) : /^\s*try\s*\{/.test(line);
-    if (!isTry) continue;
-    const tryEnd = blockEnd(src, t, src.lang === "js" ? line.indexOf("try") : 0);
-    let call = -1;
-    let ser = -1;
-    for (let k = t + 1; k <= tryEnd; k++) {
-      const b = src.bare[k];
-      if (call < 0 && TOOL_CALL.test(b) && !DEF_LINE.test(b)) call = k;
-      else if (call >= 0 && STRICT_SERIALIZE.test(b) && !/default\s*=/.test(src.code[k])) {
-        ser = k;
-        break;
+  // 4a (catalog 06, Python only): a strict json.dumps after the tool call,
+  // inside the same try, whose broad except turns any exception into an
+  // error result. JSON.stringify on plain data does not throw in practice,
+  // so JS is left out.
+  if (src.lang === "python") {
+    for (let t = 0; t < src.bare.length; t++) {
+      const line = src.bare[t];
+      if (!/^\s*try\s*:\s*$/.test(line)) continue;
+      const tryEnd = blockEnd(src, t);
+      let call = -1;
+      let ser = -1;
+      for (let k = t + 1; k <= tryEnd; k++) {
+        const b = src.bare[k];
+        if (call < 0 && TOOL_CALL.test(b) && !DEF_LINE.test(b)) call = k;
+        else if (call >= 0 && STRICT_SERIALIZE.test(b) && !/default\s*=|cls\s*=/.test(src.code[k])) {
+          ser = k;
+          break;
+        }
       }
-    }
-    if (call < 0 || ser < 0) continue;
-    // The handler.
-    let h = -1;
-    if (src.lang === "python") {
+      if (call < 0 || ser < 0) continue;
+      let h = -1;
       const base = indentOf(line);
       for (let k = tryEnd + 1; k < src.bare.length; k++) {
         if (src.bare[k].trim() === "") continue;
@@ -458,37 +567,36 @@ function checkSuccessAsError(src: SourceFile, scopes: Range[]): Finding[] {
         break;
       }
       if (h < 0 || !/^\s*except\s*(\(?\s*(Exception|BaseException)\b[^:]*)?:/.test(src.bare[h])) continue;
-    } else {
-      const m = src.bare[tryEnd].match(/\bcatch\b/) ? tryEnd : (src.bare[tryEnd + 1] ?? "").match(/\bcatch\b/) ? tryEnd + 1 : -1;
-      if (m < 0) continue;
-      h = m;
+      const hEnd = blockEnd(src, h);
+      const handler = src.code.slice(h, hEnd + 1).join("\n");
+      if (!ERROR_RESULT.test(handler)) continue;
+      if (/^\s*raise\b/m.test(src.bare.slice(h + 1, hEnd + 1).join("\n"))) continue;
+      out.push(finding(
+        src,
+        "success-as-error",
+        ser,
+        `This serialization appears to run after the tool call at line ${
+          call + 1
+        } has returned, inside the same try. If it raises (an object json.dumps cannot encode), the handler at line ${
+          h + 1
+        } may report the tool as failed.`,
+      ));
     }
-    const hCol = src.lang === "js" ? src.bare[h].search(/\bcatch\b/) : 0;
-    const hEnd = blockEnd(src, h, hCol);
-    const handler = src.code.slice(h, hEnd + 1).join("\n");
-    if (!ERROR_RESULT.test(handler)) continue;
-    if (/^\s*(raise|throw)\b/m.test(src.bare.slice(h + 1, hEnd + 1).join("\n"))) continue;
-    out.push(finding(
-      src,
-      "success-as-error",
-      ser,
-      `This serialization runs after the tool call at line ${call + 1} has already returned, inside the same try. If it raises, the handler at line ${h + 1} reports the tool as failed.`,
-    ));
   }
 
-  // 4b: success read from keys inside a parsed response body (catalog 10).
+  // 4b (catalog 10): success read from keys inside a parsed response body.
   src.code.forEach((line, i) => {
     if (!/^\s*(}\s*)?(if|elif|else\s+if)\b/.test(line)) return;
     const m = line.match(/["']status["']\s+in\s+([\w$]+)/) ??
       line.match(/\b([\w$]+)\.hasOwnProperty\(\s*["']status["']\s*\)/) ??
       line.match(/\b([\w$]+)\.status\s*(?:!==?\s*undefined\s*)?&&/);
     if (!m) return;
-    const v = m[1];
+    const v = escapeRe(m[1]);
     const otherKey = new RegExp(
       `["'](data|result|error|success)["']\\s+in\\s+${v}\\b|\\b${v}\\.(data|result|error|success)\\b|${v}\\.hasOwnProperty\\(\\s*["'](data|result|error|success)`,
     );
     if (!otherKey.test(line)) return;
-    const fn = enclosingFunction(src, i, scopes);
+    const fn = functionOrFile(src, i, scopes);
     const parsed = new RegExp(`\\b${v}\\s*(:[^=]+)?=\\s*.*(\\.json\\s*\\(|json\\.loads|JSON\\.parse)`);
     if (!parsed.test(linesIn(src, fn))) return;
     const body = src.code.slice(i, blockEnd(src, i) + 1).join("\n");
@@ -500,7 +608,7 @@ function checkSuccessAsError(src: SourceFile, scopes: Range[]): Finding[] {
       src,
       "success-as-error",
       i,
-      `Success or failure is decided here from keys inside the parsed body \`${v}\`, not from the HTTP status. A 200 whose body happens to have these keys can be reported as failed.`,
+      `Success or failure appears to be decided here from keys inside the parsed body \`${m[1]}\`, not from the HTTP status. A 200 whose body happens to have these keys may be reported as failed.`,
     ));
   });
   return out;
@@ -508,7 +616,8 @@ function checkSuccessAsError(src: SourceFile, scopes: Range[]): Finding[] {
 
 // --- 5. retry-non-idempotent-write ------------------------------------------
 
-const RETRY_DECORATOR = /^\s*@(tenacity\.)?retry\b|^\s*@backoff\.on_(exception|predicate)\b|^\s*@(with_retry|retryable|retry_on_\w+)\b/;
+const RETRY_DECORATOR =
+  /^\s*@(tenacity\.)?retry\b|^\s*@backoff\.on_(exception|predicate)\b|^\s*@(with_retry|retryable|retry_on_\w+)\b/;
 const RETRY_LOOP = /^\s*(for|while)\b.*\b(retr\w*|attempts?|tries|max_tries|num_tries)\b/i;
 const RETRY_WRAPPER =
   /\b(pRetry|p_retry|asyncRetry|withRetry|withRetries|retryAsync|backOff|retry|Retrying|AsyncRetrying)\s*\(\s*(async\b|\(|function\b|lambda\b|[\w$]+\s*=>)/;
@@ -516,25 +625,42 @@ const URLLIB3_RETRY = /\bRetry\s*\(/;
 const WRITE =
   /\.\s*(post|patch)\s*\(|\bmethod\s*[:=]\s*["'`](POST|PATCH)["'`]|\bsend_?(e?mail|message|sms|notification)\w*\s*\(|\bsend(E?[Mm]ail|Message|Sms|SMS|Notification)\w*\s*\(|\bcreate_?(order|payment|charge|invoice|refund|transfer|payout)\w*\s*\(|\b(charges|paymentIntents|payment_intents|refunds|orders|invoices|transfers|payouts|Charge|PaymentIntent|Refund|Order|Invoice|Transfer|Payout)\.create\s*\(/i;
 const MODEL_CALL =
-  /completions|chat\.|messages\.create|responses\.create|embeddings|generate_?content|\/v1\/(chat|messages|completions|responses|embeddings)/i;
+  /completions|chat\.|messages\.create|responses\.create|embeddings|generate_?content|\/v1\/(chat|messages|completions|responses|embeddings)|\/api\/(chat|generate|embed)|\btts\b|speech|synthes/i;
+/** Requests that read or authenticate rather than change state. */
+const NON_WRITE_POST = /token|oauth|auth|search|query|lookup|match|graphql|login|verify|validate|screen/i;
 const IDEMPOTENCY = /idempot|dedup\w*[_-]?key|client_?token|clientRequestToken/i;
 
 function writesIn(src: SourceFile, r: Range): number[] {
   const out: number[] = [];
   for (let i = r.start; i <= r.end; i++) {
     const code = src.code[i];
-    if (!WRITE.test(code) || MODEL_CALL.test(code)) continue;
-    // `.post(` / `.create(` on bare text so a URL in a string does not count;
-    // `method: "POST"` needs the string, so it is read from `code`.
+    if (!WRITE.test(code) || MODEL_CALL.test(code) || NON_WRITE_POST.test(code)) continue;
     if (!WRITE.test(src.bare[i]) && !/\bmethod\s*[:=]/.test(code)) continue;
     out.push(i);
   }
   return out;
 }
 
-function checkRetryWrites(src: SourceFile): Finding[] {
-  const fileText = src.code.join("\n");
-  if (IDEMPOTENCY.test(fileText)) return [];
+/** A loop that retries only when the server answered 429 (it refused the
+ * request), never on 5xx or timeouts, and re-raises network errors, cannot
+ * send a write twice. */
+function retriesOnlyOnRefusal(src: SourceFile, scope: Range): boolean {
+  const text = linesIn(src, scope);
+  if (!/\b429\b/.test(text)) return false;
+  // 5xx and timeouts can come back after the server already acted.
+  if (/\b5\d\d\b|timeout|timed\s*out|ETIMEDOUT|ECONNRESET/i.test(text)) return false;
+  for (let i = scope.start; i <= scope.end; i++) {
+    const line = src.bare[i];
+    const m = line.match(/^\s*except\b|\bcatch\b/);
+    if (!m) continue;
+    const end = blockEnd(src, i, src.lang === "js" ? line.search(/\bcatch\b/) : 0);
+    if (!/\b(raise|throw)\b/.test(src.bare.slice(i, end + 1).join("\n"))) return false;
+  }
+  return true;
+}
+
+function checkRetryWrites(src: SourceFile, scopes: Scope[]): Finding[] {
+  if (IDEMPOTENCY.test(src.code.join("\n"))) return [];
   const out: Finding[] = [];
   const seen = new Set<number>();
   const report = (w: number, retryLine: number, how: string) => {
@@ -544,7 +670,7 @@ function checkRetryWrites(src: SourceFile): Finding[] {
       src,
       "retry-non-idempotent-write",
       w,
-      `This write runs inside ${how} (line ${retryLine + 1}), and no idempotency key appears in this file.`,
+      `This looks like a write inside ${how} (line ${retryLine + 1}), and no idempotency key appears in this file. A key set elsewhere would not be seen.`,
     ));
   };
 
@@ -567,21 +693,25 @@ function checkRetryWrites(src: SourceFile): Finding[] {
     } else if (src.lang === "python" && URLLIB3_RETRY.test(line)) {
       const end = statementEnd(src, i);
       const args = src.code.slice(i, end + 1).join(" ");
-      if (/(allowed_methods|method_whitelist)\s*=\s*(None|False)\b|(allowed_methods|method_whitelist)\s*=[^)]*["'](POST|PATCH)["']/.test(args)) {
-        if (!seen.has(i)) {
-          seen.add(i);
-          out.push(finding(
-            src,
-            "retry-non-idempotent-write",
-            i,
-            "This HTTP retry policy also retries POST/PATCH requests (`allowed_methods`), and no idempotency key appears in this file.",
-          ));
-        }
+      if (
+        /(allowed_methods|method_whitelist)\s*=\s*(None|False)\b|(allowed_methods|method_whitelist)\s*=[^)]*["'](POST|PATCH)["']/
+          .test(args) && !seen.has(i)
+      ) {
+        seen.add(i);
+        out.push(finding(
+          src,
+          "retry-non-idempotent-write",
+          i,
+          "This HTTP retry policy appears to retry POST/PATCH requests too (`allowed_methods`), and no idempotency key appears in this file.",
+        ));
       }
       return;
     }
     if (!scope) return;
     if (MODEL_CALL.test(linesIn(src, scope))) return; // retrying a model call is not this rule
+    if (retriesOnlyOnRefusal(src, scope)) return;
+    const fn = enclosingFunction(src, scope.start, scopes);
+    if (fn && NON_WRITE_POST.test(src.code[fn.start])) return; // e.g. refreshToken(), searchX()
     const writes = writesIn(src, scope);
     if (writes.length) report(writes[0], i, how);
   });
@@ -597,6 +727,6 @@ export function checkFile(src: SourceFile): Finding[] {
     ...checkRepairedJson(src, scopes),
     ...checkStreamErrors(src, scopes),
     ...checkSuccessAsError(src, scopes),
-    ...checkRetryWrites(src),
+    ...checkRetryWrites(src, scopes),
   ].sort((a, b) => a.line - b.line || a.rule.localeCompare(b.rule));
 }

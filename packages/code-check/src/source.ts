@@ -147,20 +147,27 @@ export function blockEnd(src: SourceFile, i: number, col = 0): number {
 
 function pyBlockEnd(src: SourceFile, i: number): number {
   const b = src.bare;
-  // Find where the header ends (a line ending in ':'), allowing a header that
-  // wraps over a few lines.
+  // Find the ':' that ends the header, at bracket depth 0, however many lines
+  // the header (a long parameter list) takes.
+  let depth = 0;
   let h = -1;
-  for (let j = i; j < Math.min(b.length, i + 10); j++) {
-    const t = b[j].trimEnd();
-    if (t.endsWith(":")) {
-      h = j;
-      break;
+  let inline = false;
+  outer: for (let j = i; j < Math.min(b.length, i + 300); j++) {
+    const line = b[j];
+    for (let k = 0; k < line.length; k++) {
+      const c = line[k];
+      if (c === "(" || c === "[" || c === "{") depth++;
+      else if (c === ")" || c === "]" || c === "}") depth--;
+      else if (c === ":" && depth <= 0 && line[k + 1] !== "=") {
+        h = j;
+        inline = line.slice(k + 1).trim() !== "";
+        break outer;
+      }
     }
-    if (j === i && /:\s*\S/.test(t) && /^\s*(if|elif|else|for|while|try|except|with|def|async|class|finally)\b/.test(t)) {
-      return i; // one-line block: `if x: return y`
-    }
+    if (depth <= 0) break; // the statement ended without a ':': not a block header
   }
   if (h < 0) return i;
+  if (inline) return h; // one-line block: `if x: return y`
   const base = indentOf(b[i]);
   let end = h;
   for (let k = h + 1; k < b.length; k++) {
@@ -231,39 +238,145 @@ export function statementEnd(src: SourceFile, i: number): number {
   return b.length - 1;
 }
 
+export interface Scope extends Range {
+  /** A named function or method, or an anonymous callback. */
+  kind: "named" | "callback";
+}
+
 const PY_DEF = /^\s*(async\s+)?def\s+\w+/;
-const JS_FUNCS = [
-  /\bfunction\b[\s*]*[\w$]*\s*(<[^>]*>)?\s*\(/,
-  /^\s*(export\s+)?(default\s+)?(const|let|var)\s+[\w$]+\s*(:[^=]+)?=\s*(async\s+)?(\([^)]*\)|[\w$]+)\s*(:\s*[^=]+)?=>/,
-  /^\s*((public|private|protected|static|async|override|readonly)\s+)*\*?[\w$]+\s*(<[^>]*>)?\s*\([^)]*\)?\s*(:\s*[^{;]+)?\{?\s*$/,
-];
-const JS_NOT_FUNC = /^\s*(if|for|while|switch|catch|return|else|do|try|with|await|new|typeof|case)\b/;
+const JS_KEYWORDS = new Set([
+  "if", "for", "while", "switch", "catch", "return", "function", "new", "await", "typeof",
+  "case", "else", "do", "try", "with", "yield", "delete", "void", "throw", "super", "import",
+]);
+
+/** Position just after the bracket that closes the one at (line, col). */
+function afterClose(src: SourceFile, line: number, col: number): { line: number; col: number } | null {
+  let depth = 0;
+  const b = src.bare;
+  for (let j = line; j < Math.min(b.length, line + 300); j++) {
+    for (let k = j === line ? col : 0; k < b[j].length; k++) {
+      const c = b[j][k];
+      if (c === "(" || c === "[" || c === "{") depth++;
+      else if (c === ")" || c === "]" || c === "}") {
+        depth--;
+        if (depth === 0) return { line: j, col: k + 1 };
+      }
+    }
+  }
+  return null;
+}
+
+/** The text from a position onward, joined over a few lines. */
+function textFrom(src: SourceFile, pos: { line: number; col: number }, lines = 6): string {
+  return [src.bare[pos.line].slice(pos.col), ...src.bare.slice(pos.line + 1, pos.line + lines)].join("\n");
+}
+
+/** First '{' at or after a position: the line and column, or null when a ';'
+ * or an expression body comes first. */
+function bodyBrace(src: SourceFile, pos: { line: number; col: number }): { line: number; col: number } | null {
+  for (let j = pos.line; j < Math.min(src.bare.length, pos.line + 6); j++) {
+    const line = src.bare[j];
+    for (let k = j === pos.line ? pos.col : 0; k < line.length; k++) {
+      if (line[k] === "{") return { line: j, col: k };
+      if (line[k] === ";") return null;
+    }
+  }
+  return null;
+}
 
 /** Function bodies, as line ranges, header line included. */
-export function functionScopes(src: SourceFile): Range[] {
-  const out: Range[] = [];
-  src.bare.forEach((line, i) => {
+export function functionScopes(src: SourceFile): Scope[] {
+  const out: Scope[] = [];
+  const b = src.bare;
+  b.forEach((line, i) => {
     if (src.lang === "python") {
-      if (PY_DEF.test(line)) out.push({ start: i, end: pyBlockEnd(src, i) });
+      if (PY_DEF.test(line)) out.push({ start: i, end: pyBlockEnd(src, i), kind: "named" });
       return;
     }
-    if (JS_NOT_FUNC.test(line)) return;
-    if (!JS_FUNCS.some((re) => re.test(line))) return;
-    const end = jsBlockEnd(src, i, 0);
-    if (end > i || /\{.*\}/.test(line)) out.push({ start: i, end });
+    // const name = async <T>(...) => { ... }   (parameters may span lines)
+    const arrow = line.match(/^\s*(export\s+)?(default\s+)?(const|let|var)\s+[\w$]+\s*(:[^=]+)?=\s*(async\s*)?/);
+    if (arrow) {
+      const rest = line.slice(arrow[0].length);
+      if (/^function\b/.test(rest)) {
+        const p = line.indexOf("(", arrow[0].length);
+        const after = p >= 0 ? afterClose(src, i, p) : null;
+        const brace = after ? bodyBrace(src, after) : null;
+        if (brace) out.push({ start: i, end: matchBrace(src, brace.line, brace.col), kind: "named" });
+        return;
+      }
+      let after: { line: number; col: number } | null = null;
+      const single = rest.match(/^[\w$]+\s*=>/);
+      if (single) after = { line: i, col: arrow[0].length + rest.indexOf("=>") };
+      else {
+        const p = line.indexOf("(", arrow[0].length);
+        if (p >= 0 && /^(<.*>)?\s*\(?/.test(rest)) after = afterClose(src, i, p);
+      }
+      if (!after) return;
+      const tail = textFrom(src, after);
+      const m = tail.match(/^\s*(:[^\n]*?)?=>\s*/);
+      if (!m) return;
+      const bodyAt = { line: after.line, col: after.col };
+      const brace = /^\s*(:[^\n]*?)?=>\s*\{/.test(tail) ? bodyBrace(src, bodyAt) : null;
+      const end = brace ? matchBrace(src, brace.line, brace.col) : statementEnd(src, after.line);
+      out.push({ start: i, end, kind: "named" });
+      return;
+    }
+    // function name(...) { ... }  /  callback function (...) { ... }
+    const fn = line.match(/\bfunction\b[\s*]*([\w$]*)\s*(<[^>]*>)?\s*\(/);
+    if (fn && fn.index !== undefined) {
+      const p = line.indexOf("(", fn.index);
+      const after = afterClose(src, i, p);
+      const brace = after ? bodyBrace(src, after) : null;
+      if (brace) {
+        const named = /^\s*(export\s+)?(default\s+)?(async\s+)?function\b/.test(line);
+        out.push({ start: i, end: matchBrace(src, brace.line, brace.col), kind: named ? "named" : "callback" });
+      }
+      return;
+    }
+    // method(...) { ... } in a class or an object literal
+    const meth = line.match(
+      /^\s*((public|private|protected|static|async|override|readonly|get|set)\s+)*\*?([\w$]+)\s*(<[^>]*>)?\s*\(/,
+    );
+    if (meth && !JS_KEYWORDS.has(meth[3])) {
+      const p = line.indexOf("(", meth[0].length - 1);
+      const after = afterClose(src, i, p);
+      if (after) {
+        const tail = textFrom(src, after, 3);
+        if (/^\s*(:[^{;=]*)?\{/.test(tail)) {
+          const brace = bodyBrace(src, after);
+          if (brace) {
+            out.push({ start: i, end: matchBrace(src, brace.line, brace.col), kind: "named" });
+            return;
+          }
+        }
+      }
+    }
+    // a callback arrow: foo(async (req, res) => {
+    const cb = line.match(/=>\s*\{\s*$/);
+    if (cb && cb.index !== undefined) {
+      const col = line.lastIndexOf("{");
+      out.push({ start: i, end: matchBrace(src, i, col), kind: "callback" });
+    }
   });
   return out;
 }
 
-/** The innermost named function around line `i`, or the whole file. */
-export function enclosingFunction(src: SourceFile, i: number, scopes = functionScopes(src)): Range {
-  let best: Range = { start: 0, end: src.bare.length - 1 };
+/** The innermost function around line `i`, or null for top-level code.
+ * A callback that starts on line `i` itself (`calls.map((c) => {`) is not
+ * chosen: the line belongs to the function that holds the callback. */
+export function enclosingFunction(src: SourceFile, i: number, scopes: Scope[] = functionScopes(src)): Scope | null {
+  let best: Scope | null = null;
   for (const s of scopes) {
-    if (s.start <= i && i <= s.end && s.start >= best.start && !(s.start === best.start && s.end > best.end)) {
-      best = s;
-    }
+    if (s.start > i || i > s.end) continue;
+    if (s.kind === "callback" && s.start === i) continue;
+    if (!best || s.start > best.start || (s.start === best.start && s.end < best.end)) best = s;
   }
   return best;
+}
+
+/** The enclosing function, or the whole file for top-level code. */
+export function functionOrFile(src: SourceFile, i: number, scopes: Scope[]): Range {
+  return enclosingFunction(src, i, scopes) ?? { start: 0, end: src.bare.length - 1 };
 }
 
 export function linesIn(src: SourceFile, r: Range, which: "code" | "bare" = "code"): string {

@@ -9,36 +9,37 @@ export interface ScanResult {
   /** The path the user asked to scan, as given. */
   root: string;
   filesScanned: number;
+  /** Test files left out (see `isTestFile`); 0 with `includeTests`. */
+  testsSkipped: number;
+  /** Files that could not be read or checked, and why. The scan goes on. */
+  skipped: { file: string; reason: string }[];
   findings: Finding[];
 }
 
 export interface ScanOptions {
   /** Path prefixes, relative to the scanned root, to leave out. */
   exclude?: string[];
+  /** Scan test files too. Off by default: tests build faulty shapes on purpose. */
+  includeTests?: boolean;
+  /** How a file is read. Replaceable in tests. */
+  readFile?: (path: string) => Promise<string>;
 }
 
 /** Directories that hold dependencies, builds or caches, not the user's code. */
 export const SKIPPED_DIRS = new Set([
-  "node_modules",
-  ".git",
-  ".hg",
-  ".svn",
-  "dist",
-  "build",
-  "out",
-  ".next",
-  ".nuxt",
-  "coverage",
-  ".venv",
-  "venv",
-  "env",
-  "__pycache__",
-  "site-packages",
-  ".tox",
-  ".mypy_cache",
-  ".pytest_cache",
+  "node_modules", ".git", ".hg", ".svn", "dist", "build", "out", ".next", ".nuxt", "coverage",
+  ".venv", "venv", "env", "__pycache__", "site-packages", ".tox", ".mypy_cache", ".pytest_cache",
   "vendor",
 ]);
+
+const TEST_DIRS = new Set(["test", "tests", "__tests__"]);
+const TEST_FILE = /\.(test|spec)\.[^/]+$|(^|\/)test_[^/]*\.py$|_test\.(py|[mc]?[jt]sx?)$|(^|\/)conftest\.py$/;
+
+/** A test file or a file under a test folder, by path. */
+export function isTestFile(rel: string): boolean {
+  const parts = rel.split("/");
+  return parts.slice(0, -1).some((p) => TEST_DIRS.has(p)) || TEST_FILE.test(rel);
+}
 
 /** Files bigger than this are skipped (generated or bundled code). */
 const MAX_BYTES = 1_000_000;
@@ -64,27 +65,42 @@ function normalizePrefix(p: string): string {
 export async function scanPath(root: string, opts: ScanOptions = {}): Promise<ScanResult> {
   const exclude = (opts.exclude ?? []).map(normalizePrefix).filter(Boolean);
   const excluded = (rel: string) => exclude.some((e) => rel === e || rel.startsWith(`${e}/`));
-  const findings: Finding[] = [];
-  let filesScanned = 0;
+  const read = opts.readFile ?? ((p: string) => Deno.readTextFile(p));
+  const result: ScanResult = { root, filesScanned: 0, testsSkipped: 0, skipped: [], findings: [] };
 
-  const info = await Deno.stat(root);
-  const scanFile = async (abs: string, rel: string) => {
+  const scanFile = async (abs: string, rel: string, explicit: boolean) => {
     if (!langOf(rel)) return;
-    const st = await Deno.stat(abs);
-    if (st.size > MAX_BYTES) return;
-    filesScanned++;
-    findings.push(...checkText(rel, await Deno.readTextFile(abs)));
+    if (!explicit && !opts.includeTests && isTestFile(rel)) {
+      result.testsSkipped++;
+      return;
+    }
+    try {
+      const st = await Deno.stat(abs);
+      if (st.size > MAX_BYTES) return;
+      const text = await read(abs);
+      const found = checkText(rel, text);
+      result.filesScanned++;
+      result.findings.push(...found);
+    } catch (err) {
+      result.skipped.push({ file: rel, reason: err instanceof Error ? err.message : String(err) });
+    }
   };
 
+  const info = await Deno.stat(root);
   if (info.isFile) {
     const name = root.replace(/\\/g, "/").split("/").pop() ?? root;
-    await scanFile(root, name);
-    return { root, filesScanned, findings };
+    await scanFile(root, name, true);
+    return result;
   }
 
   const walk = async (dir: string, rel: string) => {
     const entries: Deno.DirEntry[] = [];
-    for await (const e of Deno.readDir(dir)) entries.push(e);
+    try {
+      for await (const e of Deno.readDir(dir)) entries.push(e);
+    } catch (err) {
+      result.skipped.push({ file: rel || ".", reason: err instanceof Error ? err.message : String(err) });
+      return;
+    }
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const e of entries) {
       const childRel = join(rel, e.name);
@@ -94,11 +110,11 @@ export async function scanPath(root: string, opts: ScanOptions = {}): Promise<Sc
         if (SKIPPED_DIRS.has(e.name)) continue;
         await walk(abs, childRel);
       } else if (e.isFile) {
-        await scanFile(abs, childRel);
+        await scanFile(abs, childRel, false);
       }
       // Symlinks are not followed: they can point outside the project.
     }
   };
   await walk(root.replace(/\/+$/, "") || "/", "");
-  return { root, filesScanned, findings };
+  return result;
 }

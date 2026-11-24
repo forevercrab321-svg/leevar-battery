@@ -57,5 +57,7 @@ Deno.test("check-code: --json prints the machine result", async () => {
   assertEquals(r.code, 0);
   const parsed = JSON.parse(r.out);
   assertEquals(parsed.filesScanned, 1);
+  assertStringIncludes(parsed.disclaimer, "confirm");
+  assert(typeof parsed.rulesVersion === "string");
   assert(parsed.findings.some((f: { rule: string }) => f.rule === "stream-error-ignored"));
 });

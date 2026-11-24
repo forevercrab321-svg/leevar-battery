@@ -8,6 +8,8 @@ function resultWith(rules: RuleId[]): ScanResult {
   return {
     root: "my-agent",
     filesScanned: 3,
+    testsSkipped: 0,
+    skipped: [],
     findings: rules.map((rule, i) => ({
       rule,
       file: "agent.py",
@@ -61,4 +63,20 @@ Deno.test("no findings is said plainly, without claiming the code is fine", () =
   assertStringIncludes(md, "No matches");
   assertStringIncludes(md, "not proof");
   assertStringIncludes(md, "3 files");
+});
+
+Deno.test("several matches of one rule in one file are grouped in the Markdown", () => {
+  const r = resultWith(["tool-call-after-truncation", "tool-call-after-truncation", "tool-call-after-truncation"]);
+  const md = renderMarkdown(r);
+  assertStringIncludes(md, "**agent.py**: 3 places in this file");
+  assertStringIncludes(md, "line 10");
+  assertStringIncludes(md, "line 12");
+});
+
+Deno.test("skipped test files and unreadable files are said in the report", () => {
+  const r = { ...resultWith([]), testsSkipped: 4, skipped: [{ file: "x.py", reason: "permission denied" }] };
+  const md = renderMarkdown(r);
+  assertStringIncludes(md, "4 test files were skipped");
+  assertStringIncludes(md, "--include-tests");
+  assertStringIncludes(md, "x.py: permission denied");
 });
