@@ -16,7 +16,7 @@
 //
 // Run: deno test --allow-read packages/scanner-core/src/dimension_letter_test.ts
 
-import { assert, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert, assertStringIncludes } from "@std/assert";
 
 import { buildReportMd } from "./report.ts";
 import { BATTERY } from "./battery.ts";

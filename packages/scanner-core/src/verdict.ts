@@ -14,7 +14,7 @@
 //     the caller retries and then reports as ungraded — OUR fault, counted
 //     separately from the customer's thin evidence.
 
-import type { TestResult, TestSpec } from "./battery.ts";
+import type { TestResult } from "./battery.ts";
 import type { TestVerdict } from "./types.ts";
 import type { JudgeContext } from "./prompts/types.ts";
 
@@ -62,7 +62,7 @@ export function notGraded(
     evidence: "absent",
     detail: reason === "no-evidence"
       ? "Not graded: the samples contain nothing that exercises this test. " +
-        "Send samples where this behaviour actually occurs, or run a live scan, to grade it."
+        "Send samples where this behaviour actually occurs, or grade a live endpoint (through the library, or with a hosted live scan)."
       : "Not graded: the judge returned no usable verdict for this test, twice. " +
         "This is a fault on our side, not a finding about your agent — it is excluded from the score.",
     // Machine-readable, not just prose. Coverage is a ratio, and our own

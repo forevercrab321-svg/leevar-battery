@@ -9,7 +9,7 @@
 // 12/18 (0.667 — under by three thousandths). Both sides are asserted, because
 // a gate tested only on the side it passes is not tested.
 
-import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert, assertEquals } from "@std/assert";
 import { gradeBattery } from "./grade-battery.ts";
 import { BATTERY } from "./battery.ts";
 import { GRADED_MIN_RATIO } from "./coverage.ts";

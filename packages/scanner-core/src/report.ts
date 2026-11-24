@@ -3,15 +3,22 @@
 // verdict, six per-dimension score bars with the caught failure mode, the
 // 18 test results, and the Top-3 prescriptions (lowest dimensions first).
 
-import { BATTERY, BATTERY_ID, batteryLabel, type DimensionSpec, testCount } from "./battery.ts";
+import { BATTERY, BATTERY_ID, batteryLabel, testCount } from "./battery.ts";
 import {
   deriveCoverage,
   evidenced,
   GRADED_MIN_RATIO,
   type ScoredDimension,
 } from "./coverage.ts";
+import {
+  FIX_CTA,
+  FIX_SECTION_HEADING,
+  TESTABLE_SECTION_HEADING,
+  renderFixEntry,
+  renderTestableLine,
+} from "./fix-guide.ts";
 import { gradeLetter, round1, verdictLine } from "./grade.ts";
-import type { AgentMeta, DimensionScores, TestVerdict } from "./types.ts";
+import type { AgentMeta, DimensionScores } from "./types.ts";
 
 const RESULT_MARK: Record<string, string> = {
   pass: "PASS",
@@ -56,11 +63,21 @@ export interface ReportBranding {
    * behalf of an operator that does not exist.
    */
   footerNote?: string;
+  /**
+   * One line printed after the fix guidance, only when a probe failed.
+   *
+   * The default public branding carries `FIX_CTA` — the single hosted line an
+   * open build prints, allowed by name in report_public_test.ts. Any other
+   * branding gets no line unless it supplies its own: a white-label report must
+   * never carry someone else's domain. `null` switches it off explicitly.
+   */
+  fixCta?: string | null;
 }
 
 export const DEFAULT_BRANDING: ReportBranding = {
   title: "Agent Reliability — Diagnostic Report",
   reopenUrl: () => null,
+  fixCta: FIX_CTA,
 };
 
 /**
@@ -209,7 +226,7 @@ export function buildReportMd(input: ReportInput, opts: ReportRenderOpts = {}): 
       `> **We are not grading this agent.** Only ${tt} of ${tn} probes found evidence in your samples, ` +
         `and an average over ${tt} test${tt === 1 ? "" : "s"} is not a reliability grade — it is a coin toss with a letter on it.${faultNote} ` +
         `The dimensions we could measure are below, scored honestly; the rest say NOT TESTED because they were not tested. ` +
-        `Send samples that exercise the missing behaviours, or run a live scan, and we will grade the whole battery.`,
+        `Send samples that exercise the missing behaviours, or grade a live endpoint (through the library, or with a hosted live scan), and the whole battery can be graded.`,
     );
     L.push("");
     L.push(`> _For reference only, over the ${tt} evidenced test${tt === 1 ? "" : "s"}: ${round1(composite)}/100. Do not deploy on this number._`);
@@ -230,7 +247,7 @@ export function buildReportMd(input: ReportInput, opts: ReportRenderOpts = {}): 
           ? `> Coverage: ${cov.tested}/${cov.total} dimensions · ${tt}/${tn} tests — full battery.`
           : ourFault > 0 && tt >= tn
           ? `> **Coverage: ${tt}/${tn} tests of the ${tn + ourFault} in the battery.**${faultNote} Everything your samples evidenced was graded — the shortfall is ours, not yours.`
-          : `> **Coverage: ${cov.tested}/${cov.total} dimensions · ${tt}/${tn} tests.**${faultNote} The composite reflects ONLY what your samples evidenced — the rest are marked "not tested" below, not scored 0. Send more representative samples (or a live endpoint) to grade the full battery.`,
+          : `> **Coverage: ${cov.tested}/${cov.total} dimensions · ${tt}/${tn} tests.**${faultNote} The composite reflects ONLY what your samples evidenced — the rest are marked "not tested" below, not scored 0. Send more representative samples, or grade a live endpoint (through the library, or with a hosted live scan), to grade the full battery.`,
       );
     }
     L.push("");
@@ -319,6 +336,8 @@ export function buildReportMd(input: ReportInput, opts: ReportRenderOpts = {}): 
     L.push("");
   }
 
+  L.push(...fixSection(scores, branding.fixCta ?? null));
+
   // Heading and body together. Ranking the weakest dimensions, costing the work
   // and projecting a delta is the paid planning layer, so an open build has no
   // prescriptions — and an empty "## Top-3 prescriptions" heading advertises a
@@ -372,6 +391,60 @@ export function buildReportMd(input: ReportInput, opts: ReportRenderOpts = {}): 
   );
 
   return L.join("\n");
+}
+
+/**
+ * "How to fix what failed" — part of the open build, unlike prescriptions.
+ *
+ * Prescriptions RANK and COST the work; this only says, per probe, what the
+ * battery's fix guide says about that failure mode. Three states, kept apart:
+ *
+ *   FAIL / PARTIAL with evidence → the full entry (why, layers strongest
+ *                                  first, prompt-only ceiling, how to verify)
+ *   no evidence                  → one line on how to make it testable, and
+ *                                  no remedy: nothing was measured, so a fix
+ *                                  would be advice about a guess
+ *   PASS                         → nothing
+ *
+ * A report with nothing in the first two states prints no section at all. The
+ * branding's `fixCta` line appears only when something actually failed.
+ */
+function fixSection(scores: DimensionScores, cta: string | null): string[] {
+  const failing: { name: string; dimId: string; mark: string; fail: boolean }[] = [];
+  const untested: { name: string; dimId: string }[] = [];
+  for (const d of BATTERY) {
+    const verdicts = scores?.[d.key]?.tests ?? [];
+    for (const t of d.tests) {
+      const v = verdicts.find((x) => x.name === t.name);
+      if (!v || !evidenced(v)) untested.push({ name: t.name, dimId: d.id });
+      else if (v.result === "fail" || v.result === "partial") {
+        failing.push({ name: t.name, dimId: d.id, mark: RESULT_MARK[v.result], fail: v.result === "fail" });
+      }
+    }
+  }
+  if (failing.length === 0 && untested.length === 0) return [];
+  // FAIL before PARTIAL; battery order within each (sort is stable).
+  failing.sort((a, b) => Number(b.fail) - Number(a.fail));
+
+  // Nothing failed → the heading must not say something did.
+  const L: string[] = [failing.length > 0 ? FIX_SECTION_HEADING : TESTABLE_SECTION_HEADING, ""];
+  L.push(
+    `_Generic guidance for each probe that failed or could not be graded, from the battery's fix guide (docs/fixes/). ` +
+      `It describes the usual cause; your agent's may differ, and a re-test is what settles it._`,
+  );
+  L.push("");
+  for (const f of failing) L.push(...renderFixEntry(f.name, f.dimId, f.mark));
+  if (untested.length > 0) {
+    L.push(`### Not tested — how to make each one testable`);
+    L.push("");
+    for (const u of untested) L.push(renderTestableLine(u.name, u.dimId));
+    L.push("");
+  }
+  if (failing.length > 0 && cta) {
+    L.push(cta);
+    L.push("");
+  }
+  return L;
 }
 
 export interface PrevScanSummary {

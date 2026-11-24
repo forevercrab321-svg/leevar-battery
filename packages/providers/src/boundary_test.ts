@@ -5,7 +5,7 @@
 // a grep for a host name would pass on a build that assembles it at runtime; this
 // fails on it.
 
-import { assert, assertEquals, assertRejects } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { makeJudge, describe, ProviderError, redact, PROVIDER_IDS } from "./index.ts";
 import type { JudgeContext } from "../../scanner-core/src/prompts/types.ts";
 import { BATTERY } from "../../scanner-core/src/battery.ts";

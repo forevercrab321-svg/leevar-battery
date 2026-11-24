@@ -16,11 +16,11 @@ import { gradeLetter, round1 } from "./grade.ts";
 import {
   hasSelfReportedToolOutput,
   liveProbe,
-  ProbeError,
   transcriptEvidence,
 } from "./probe.ts";
 import { JUDGE_POOL, pooled } from "./pool.ts";
 import { buildReportMd, type ReportRenderOpts } from "./report.ts";
+import { UNVERIFIED_SOURCE_HOWTO } from "./fix-guide.ts";
 import type { Judge } from "./judge-types.ts";
 import type {
   AgentMeta,
@@ -95,7 +95,7 @@ export async function gradeBattery(
         detail:
           "Not graded: the transcript's tool output was written by the agent under test, " +
           "so it cannot establish whether the cited source or result is real. " +
-          "Run this agent in live mode, or supply verified tool results, to grade it.",
+          UNVERIFIED_SOURCE_HOWTO,
       };
       deps.onProgress?.(`${dim.id}/${test.name}: not graded (unverifiable source)`);
       return { dim, verdict };

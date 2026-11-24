@@ -10,7 +10,7 @@
 // Both are broken instructions rather than missing ones, which is the failure
 // mode this battery grades other agents on.
 
-import { assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert } from "@std/assert";
 import { gradeBattery } from "./grade-battery.ts";
 import { BATTERY } from "./battery.ts";
 import type { Judge } from "./judge-types.ts";
@@ -61,8 +61,14 @@ Deno.test("the public report contains no address, no URL, and no dead instructio
   assert(!email, `the public report contains an email address: ${email?.[0]}`);
 
   // No URL of any kind. Stronger than a list of payment hosts and it needs no
-  // list: an open build hosts nothing, links to nothing and sells nothing, so a
-  // URL in its report is a defect whatever it points at.
+  // list: an open build hosts nothing and links to nothing, so a URL in its
+  // report is a defect whatever it points at.
+  //
+  // It sells nothing EXCEPT ONE LINE, and that exception is stated here rather
+  // than slipped past this regex as a bare domain: the default branding's
+  // `fixCta`, printed once, after the fix guidance, only when a probe actually
+  // failed. The test below pins its exact text and asserts it is the only
+  // place the domain appears.
   const url = URL.exec(md);
   assert(!url, `the public report contains a URL: ${url?.[0]}`);
 
@@ -269,4 +275,40 @@ Deno.test("a probe with no evidence is NOT TESTED, never FAIL", async () => {
   // Control: an evidenced probe keeps the judge's own verdict.
   assert(lines.filter((l) => l.startsWith("- **PASS**")).length === 12, lines.join("\n"));
   assert(!lines.some((l) => l.startsWith("- **FAIL**")), lines.join("\n"));
+});
+
+// ---------------------------------------------------------------------------
+// THE ONE ALLOWED LINE.
+//
+// The default public branding carries a single re-test line after the fix
+// guidance. It is allowed by name, not by evading the URL check: its text is
+// pinned below, it may appear once and nowhere else, and any other branding
+// — a self-hoster's, a white-label operator's — gets it only by asking.
+
+import { DEFAULT_BRANDING } from "./report.ts";
+
+const ALLOWED_CTA = "Want a re-test that proves the fix, or someone to make the change? leevar.live";
+
+Deno.test("the default public report carries exactly one hosted line, verbatim, and the domain nowhere else", async () => {
+  assert(DEFAULT_BRANDING.fixCta === ALLOWED_CTA, `the default CTA changed: ${DEFAULT_BRANDING.fixCta}`);
+  const md = await publicReport(); // every probe PARTIAL, so the line is due
+  const hits = md.split("\n").filter((l) => /leevar/i.test(l));
+  assert(hits.length === 1, `expected exactly one line naming the domain, got ${hits.length}:\n${hits.join("\n")}`);
+  assert(hits[0] === ALLOWED_CTA, `the hosted line is not the allowed text: ${hits[0]}`);
+});
+
+Deno.test("someone else's branding never carries our domain unless they put it there", async () => {
+  const branded = await gradeBattery(OPTS, { judge, report: { branding: { title: "Acme Agent Report" } } });
+  assert(!/leevar/i.test(branded.report_md), "a custom-branded report names leevar.live");
+  assert(branded.report_md.includes("## How to fix what failed"), "custom branding lost the fix guidance itself");
+
+  const replaced = await gradeBattery(OPTS, {
+    judge,
+    report: { branding: { title: "Acme Agent Report", fixCta: "Need help? Ask the Acme platform team." } },
+  });
+  assert(replaced.report_md.includes("Need help? Ask the Acme platform team."), "a replacement CTA did not render");
+  assert(!/leevar/i.test(replaced.report_md), "a replaced CTA still names leevar.live");
+
+  const off = await gradeBattery(OPTS, { judge, report: { branding: { ...DEFAULT_BRANDING, fixCta: null } } });
+  assert(!/leevar/i.test(off.report_md), "fixCta: null did not switch the line off");
 });

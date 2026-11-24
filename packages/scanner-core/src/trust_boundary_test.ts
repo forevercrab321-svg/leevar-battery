@@ -10,7 +10,7 @@
 // The metric was wrong, not the mechanism. This pins the mechanism so the next
 // person measuring it does not repeat the mistake.
 
-import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert, assertEquals } from "@std/assert";
 import { gradeBattery } from "./grade-battery.ts";
 import { BATTERY } from "./battery.ts";
 import { hasSelfReportedToolOutput } from "./probe.ts";

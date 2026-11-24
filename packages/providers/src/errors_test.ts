@@ -9,7 +9,7 @@
 // Each test asserts the HTTP CALL COUNT as well as the outcome. "Rejects" is
 // half the fix; "rejects without spending a second call" is the other half.
 
-import { assert, assertEquals, assertRejects } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert, assertEquals, assertRejects } from "@std/assert";
 import { makeJudge, ProviderError, DEFAULT_MAX_CALLS } from "./index.ts";
 import { gradeBattery } from "../../scanner-core/src/grade-battery.ts";
 import { BATTERY } from "../../scanner-core/src/battery.ts";

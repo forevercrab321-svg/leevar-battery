@@ -11,7 +11,7 @@
 // The fixtures below carry that scan's real shape: 9 `sufficient`, 3 `thin`,
 // 6 `absent`, 0 judge faults.
 
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals } from "@std/assert";
 import {
   deriveCoverage,
   evidenced,
@@ -136,7 +136,7 @@ Deno.test("coverage counts only real evidence, not missing fields", () => {
 /* An empty list on a thin sample is not lenience, it is a false statement.    */
 /* -------------------------------------------------------------------------- */
 
-import { assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert } from "@std/assert";
 import { BATTERY } from "./battery.ts";
 import { untestedDimensions, untestedTests } from "./coverage.ts";
 

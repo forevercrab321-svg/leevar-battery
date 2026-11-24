@@ -9,12 +9,16 @@
     "./report": "./packages/scanner-core/src/report.ts",
     "./providers": "./packages/providers/src/index.ts"
   },
+  "imports": {
+    "@std/assert": "https://deno.land/std@0.224.0/assert/mod.ts"
+  },
   "tasks": {
     "demo": "deno run --allow-read cli/scan.ts --mock --transcript examples/transcript-support-bot.json --agent-name demo-support-bot --agent-type 'Customer support'",
     "scan": "deno run --allow-read --allow-env --allow-net cli/scan.ts",
     "example": "deno run --allow-read examples/render-example.ts",
+    "fixes": "deno run --allow-write=docs/fixes docs/fixes/generate.ts",
     "test": "deno test --allow-read packages/ cli/ examples/ action/",
-    "check": "deno check cli/scan.ts examples/render-example.ts action/main.ts"
+    "check": "deno check cli/scan.ts examples/render-example.ts action/main.ts docs/fixes/generate.ts"
   },
   "fmt": {
     "exclude": ["examples/*.md"]
