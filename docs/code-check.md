@@ -24,11 +24,26 @@ Skipped: `node_modules`, `.git`, virtualenvs, `dist` / `build` / `out`, `vendor`
 
 **Test files are skipped by default** (`test/`, `tests/`, `__tests__/`, `*.test.*`, `*.spec.*`, `test_*.py`, `*_test.*`, `conftest.py`), because tests build these shapes on purpose; the report says how many were skipped. `--include-tests` checks them too. A test file named directly on the command line is always checked.
 
+## Tested against the catalog cases
+
+The rules were run, read-only, on the commit just before each catalog case's fix (the parent of the fix PR's merge commit) and on the merge commit itself, with rules version 2 and the default settings (test files skipped).
+
+| Case | Before the fix | After the fix |
+|---|---|---|
+| [01](catalog/01-truncated-tool-call-runs-with-empty-arguments.md) heymrun/heym (`dd8cb21` → `587d150`) | Missed: the tool loop never reads a stop reason, so `tool-call-after-truncation` does not look at it | Not applicable |
+| [02](catalog/02-truncated-answer-repaired-and-applied.md) clusterzx/paperless-ai (`be63004` → `fe47e6f`) | Missed: the repair is the project's own `repairJson`, and `repaired-json-applied` only counts functions imported from a known repair library | No matches |
+| [03](catalog/03-truncated-tool-call-completed-by-json-repair.md) langroid/langroid (`5d48dbb` → `71c3d1a`) | Partly: `repaired-json-applied` points at the lenient repair in `langroid/parsing/parse_json.py:72`; the tool run, in another function, is missed | **Still flagged** at `parse_json.py:72`: the fix went into the caller |
+| [04](catalog/04-truncated-tool-call-in-agent-loop.md) labring/FastGPT (`14add9d` → `8cee7a1`) | Flagged: `tool-call-after-truncation` at `fastAgent/loop/base.ts:734`, the loop the fix guarded; and `repaired-json-applied` at `packages/service/core/ai/utils.ts:375` (`parseJsonArgs`, the `jsonrepair` step that completes cut-off arguments) | `base.ts:734` no longer flagged; **`utils.ts:375` (`parseJsonArgs`) still flagged**: the guard was added in the loop, not in that function |
+
+In short: one clean catch (04), one partial (03), two misses (01, 02); and in 03 and 04 a `repaired-json-applied` match stays after the fix, because the rule cannot see a guard in the caller.
+
+**False alarms** were measured on only four open-source projects, at one commit each (langchain-ai/langgraph `732da52`, crewAIInc/crewAI `f6ba142`, openai/openai-agents-python `4e162c7`, mastra-ai/mastra `5ca93e42`), with test files skipped: 24 matches, of which 1 was a clear false alarm (4%) and 2 were disputed (12.5% counting them as false). 19 of the 24 came from one project and amount to two or three underlying issues, and none of the matches judged real has been confirmed by those projects' maintainers. This is a narrow sample: expect a different rate on other code.
+
 ## The five rules
 
 ### `tool-call-after-truncation`
 
-**Catalog:** [01](catalog/01-truncated-tool-call-runs-with-empty-arguments.md), [03](catalog/03-truncated-tool-call-completed-by-json-repair.md), [04](catalog/04-truncated-tool-call-in-agent-loop.md)
+**Modelled on:** [01](catalog/01-truncated-tool-call-runs-with-empty-arguments.md), [03](catalog/03-truncated-tool-call-completed-by-json-repair.md), [04](catalog/04-truncated-tool-call-in-agent-loop.md)
 
 **Looks for:** a function that reads the model's stop reason (`finish_reason`, `finishReason`, `stop_reason`, `stopReason`, or a variable assigned from one) **before** it runs the turn's tool calls, with no branch in between that compares the stop reason with a length value (`length`, `max_tokens`, `MAX_TOKENS`, `max_output_tokens`, `incomplete`) and leaves the turn (`return`, `raise`, `throw`, `break`, `continue`).
 
@@ -44,7 +59,7 @@ Not counted as running a tool: accumulating streamed fragments (a loop over `del
 
 ### `repaired-json-applied`
 
-**Catalog:** [02](catalog/02-truncated-answer-repaired-and-applied.md), [03](catalog/03-truncated-tool-call-completed-by-json-repair.md)
+**Modelled on:** [02](catalog/02-truncated-answer-repaired-and-applied.md), [03](catalog/03-truncated-tool-call-completed-by-json-repair.md)
 
 **Looks for:** a call into a lenient JSON repair library in a function that never mentions a stop reason, `truncated`, `incomplete`, `is_complete`, or the repaired-parse state. A call counts only when its name was imported from a known repair module (`json_repair`, `partial_json_parser`, `dirtyjson`, `jsonrepair`, `partial-json`, `best-effort-json-parser`, `untruncate-json`, `json-repair`, and `parsePartialJson` from `ai` / `@ai-sdk/*`), including aliases and `import *`, or is written module-qualified (`json_repair.loads(...)`).
 
@@ -54,7 +69,7 @@ Not counted as running a tool: accumulating streamed fragments (a loop over `del
 
 ### `stream-error-ignored`
 
-**Catalog:** [05](catalog/05-workflow-error-chunk-reported-as-completed.md)
+**Modelled on:** [05](catalog/05-workflow-error-chunk-reported-as-completed.md)
 
 **Looks for:** a function that parses a stream itself and branches on the type of each parsed event, over two or more values, none of which is an error value, with no `else` / `default` that raises or throws and no other mention of an `error` key. "Parses a stream itself" means a stream marker (`iter_lines`, `readline`, `getReader()`, `for await`, `async for`, `"data:"`, `split("\n")`, `EventSource`, NDJSON / event-stream) and that the variable whose type is compared (`chunk["type"]`, `evt.type`, `switch (evt.type)`, `match`) was assigned from `json.loads` / `JSON.parse` inside a loop in that function.
 
@@ -64,7 +79,7 @@ Not counted as running a tool: accumulating streamed fragments (a loop over `del
 
 ### `success-as-error`
 
-**Catalog:** [06](catalog/06-structured-mcp-result-reported-as-tool-error.md), [10](catalog/10-http-200-reported-as-failed-tool-call.md)
+**Modelled on:** [06](catalog/06-structured-mcp-result-reported-as-tool-error.md), [10](catalog/10-http-200-reported-as-failed-tool-call.md)
 
 **Looks for two shapes:**
 
@@ -77,7 +92,7 @@ Not counted as running a tool: accumulating streamed fragments (a loop over `del
 
 ### `retry-non-idempotent-write`
 
-**Catalog:** pattern, not yet in catalog. No maintainer-confirmed case of ours for this one is in `docs/catalog/` yet; the rule is here because the shape is a well-known cause of duplicate orders, emails and charges.
+**Modelled on:** pattern, not yet in catalog. No maintainer-confirmed case of ours for this one is in `docs/catalog/` yet; the rule is here because the shape is a well-known cause of duplicate orders, emails and charges.
 
 **Looks for:** a write (`.post(` / `.patch(`, `method: "POST"`, `send_email(` and similar, `create_order(` and similar, `charges.create(` / `refunds.create(` and similar payment objects) inside an automatic retry: a `@retry` / `@tenacity.retry` / `@backoff.on_exception` decorated function, a loop whose header mentions `retry` / `attempt` / `tries`, or a wrapper such as `pRetry(async () => ...)`. Also a urllib3 `Retry(...)` whose `allowed_methods` is `None` / `False` or includes `POST` / `PATCH`. Only flagged when the file mentions no idempotency key (`idempot...`, `dedup..._key`, `client_token`, `clientRequestToken`).
 
