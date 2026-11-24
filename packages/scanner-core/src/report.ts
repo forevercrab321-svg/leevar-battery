@@ -3,15 +3,21 @@
 // verdict, six per-dimension score bars with the caught failure mode, the
 // 18 test results, and the Top-3 prescriptions (lowest dimensions first).
 
-import { BATTERY, BATTERY_ID, batteryLabel, type DimensionSpec, testCount } from "./battery.ts";
+import { BATTERY, BATTERY_ID, batteryLabel, testCount } from "./battery.ts";
 import {
   deriveCoverage,
   evidenced,
   GRADED_MIN_RATIO,
   type ScoredDimension,
 } from "./coverage.ts";
+import {
+  FIX_CTA,
+  FIX_SECTION_HEADING,
+  renderFixEntry,
+  renderTestableLine,
+} from "./fix-guide.ts";
 import { gradeLetter, round1, verdictLine } from "./grade.ts";
-import type { AgentMeta, DimensionScores, TestVerdict } from "./types.ts";
+import type { AgentMeta, DimensionScores } from "./types.ts";
 
 const RESULT_MARK: Record<string, string> = {
   pass: "PASS",
@@ -319,6 +325,8 @@ export function buildReportMd(input: ReportInput, opts: ReportRenderOpts = {}): 
     L.push("");
   }
 
+  L.push(...fixSection(scores));
+
   // Heading and body together. Ranking the weakest dimensions, costing the work
   // and projecting a delta is the paid planning layer, so an open build has no
   // prescriptions — and an empty "## Top-3 prescriptions" heading advertises a
@@ -372,6 +380,59 @@ export function buildReportMd(input: ReportInput, opts: ReportRenderOpts = {}): 
   );
 
   return L.join("\n");
+}
+
+/**
+ * "How to fix what failed" — part of the open build, unlike prescriptions.
+ *
+ * Prescriptions RANK and COST the work; this only says, per probe, what the
+ * battery's fix guide says about that failure mode. Three states, kept apart:
+ *
+ *   FAIL / PARTIAL with evidence → the full entry (why, layers strongest
+ *                                  first, prompt-only ceiling, how to verify)
+ *   no evidence                  → one line on how to make it testable, and
+ *                                  no remedy: nothing was measured, so a fix
+ *                                  would be advice about a guess
+ *   PASS                         → nothing
+ *
+ * A report with nothing in the first two states prints no section at all. The
+ * hosted re-test line appears only when something actually failed.
+ */
+function fixSection(scores: DimensionScores): string[] {
+  const failing: { name: string; dimId: string; mark: string; fail: boolean }[] = [];
+  const untested: { name: string; dimId: string }[] = [];
+  for (const d of BATTERY) {
+    const verdicts = scores?.[d.key]?.tests ?? [];
+    for (const t of d.tests) {
+      const v = verdicts.find((x) => x.name === t.name);
+      if (!v || !evidenced(v)) untested.push({ name: t.name, dimId: d.id });
+      else if (v.result === "fail" || v.result === "partial") {
+        failing.push({ name: t.name, dimId: d.id, mark: RESULT_MARK[v.result], fail: v.result === "fail" });
+      }
+    }
+  }
+  if (failing.length === 0 && untested.length === 0) return [];
+  // FAIL before PARTIAL; battery order within each (sort is stable).
+  failing.sort((a, b) => Number(b.fail) - Number(a.fail));
+
+  const L: string[] = [FIX_SECTION_HEADING, ""];
+  L.push(
+    `_Generic guidance for each probe that failed or could not be graded, from the battery's fix guide (docs/fixes/). ` +
+      `It describes the usual cause; your agent's may differ, and a re-test is what settles it._`,
+  );
+  L.push("");
+  for (const f of failing) L.push(...renderFixEntry(f.name, f.dimId, f.mark));
+  if (untested.length > 0) {
+    L.push(`### Not tested — how to make each one testable`);
+    L.push("");
+    for (const u of untested) L.push(renderTestableLine(u.name, u.dimId));
+    L.push("");
+  }
+  if (failing.length > 0) {
+    L.push(FIX_CTA);
+    L.push("");
+  }
+  return L;
 }
 
 export interface PrevScanSummary {

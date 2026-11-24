@@ -202,3 +202,17 @@ Deno.test("a transcript with no self-reported tool output grades the full batter
   assert(result.grade !== null);
   assertEquals(result.coverage.tested, BATTERY.length);
 });
+
+Deno.test("the demo prints the fix section", async () => {
+  // The same arguments as `deno task demo`, so the README's first command
+  // shows a reader what to change, not only what scored badly.
+  const r = await run([
+    "--mock",
+    "--transcript", SAMPLES.pathname,
+    "--agent-name", "demo-support-bot",
+    "--agent-type", "Customer support",
+  ]);
+  assertEquals(r.code, 0);
+  assert(r.out.includes("## How to fix what failed"), "the demo report has no fix section");
+  assert(r.out.includes("How to verify"), "the demo fix section has no verification step");
+});
