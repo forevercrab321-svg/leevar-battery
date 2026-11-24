@@ -19,6 +19,20 @@ Want to see what these faults look like in the wild? [The fault catalog](docs/ca
 
 ---
 
+## Check your agent's code
+
+The battery grades what an agent does. Some faults live in the code around the model instead (how a stream is parsed, what happens when output is cut off), so there is also an offline code check for five fault shapes; four are modelled on confirmed cases in the catalog:
+
+```bash
+deno task check-code ./path/to/your-agent
+```
+
+It reads Python and TypeScript / JavaScript, needs no model, key or network, and never runs your code. Each match comes with the file and line, why the shape is risky, how it is usually fixed, and the catalog case the rule is modelled on, where there is one. Matches are possible issues to confirm by reading the code, not verdicts.
+
+It is a pattern check that misses many real cases. On the four catalog cases it was modelled on, it flags the faulty code cleanly in one (04), points at the repair step but not the tool run in one (03), and misses two (01, 02). Its false-alarm rate was measured on only four open-source projects (24 matches: 4% clear false alarms, 12.5% counting disputed ones as false), which is a narrow sample. Test files are skipped by default. Details, per rule, of what it looks for and what it misses: [docs/code-check.md](docs/code-check.md).
+
+---
+
 ## Prefer not to install? Run a hosted scan
 
 ```bash
