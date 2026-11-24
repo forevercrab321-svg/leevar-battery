@@ -6,7 +6,7 @@
 // in the test task: if a code path here ever reached for a model, Deno would
 // refuse it and the suite would red rather than quietly bill someone.
 
-import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert, assertEquals } from "@std/assert";
 import { main } from "./scan.ts";
 import { makeJudge, ProviderError } from "../packages/providers/src/index.ts";
 import { PROVIDERS } from "../packages/providers/src/providers.ts";
@@ -215,4 +215,8 @@ Deno.test("the demo prints the fix section", async () => {
   assertEquals(r.code, 0);
   assert(r.out.includes("## How to fix what failed"), "the demo report has no fix section");
   assert(r.out.includes("How to verify"), "the demo fix section has no verification step");
+  // The CLI runs transcripts only, so the demo must not tell a reader to "run
+  // it in live mode" as if a flag existed; it names the library or the hosted scan.
+  assert(!/run (it|this agent) in live mode|run a live scan/i.test(r.out), "the demo prints an instruction the CLI cannot follow");
+  assert(r.out.includes("access.mode"), "the demo does not name the library's live route");
 });

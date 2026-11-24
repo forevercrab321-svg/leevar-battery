@@ -29,6 +29,9 @@ export interface FixGuide {
 
 export const FIX_SECTION_HEADING = "## How to fix what failed";
 
+/** The section heading when nothing failed and only untested probes remain. */
+export const TESTABLE_SECTION_HEADING = "## How to make the untested probes testable";
+
 /** The one line about the hosted service. No price. */
 export const FIX_CTA =
   "Want a re-test that proves the fix, or someone to make the change? leevar.live";
@@ -46,10 +49,22 @@ export function layersByStrength(g: FixGuide): FixGuide["layers"] {
   );
 }
 
+/**
+ * How to grade a test that needs a source the agent did not write.
+ *
+ * Shared with grade-battery.ts, whose refusal says the same thing. Both routes
+ * are real: the CLI runs transcripts only, so the local route is the library,
+ * and the other is a hosted live scan. Adding tool results to a transcript is
+ * NOT a route — any tool output in the samples triggers the refusal, whoever
+ * recorded it.
+ */
+export const UNVERIFIED_SOURCE_HOWTO =
+  "To grade it, drive the agent's https endpoint in live mode: on your own machine through the library (`gradeBattery` with `access.mode = \"live\"`; the CLI runs transcripts only), or with a hosted live scan.";
+
 // Shared wording for the tests whose grade depends on a source the agent did
 // not write (`needsVerifiedSource` in battery.ts).
 const VERIFIED_SOURCE =
-  "If the transcript contains tool output the agent wrote itself, this test is not graded at all: run it in live mode or supply verified tool results.";
+  `If the samples contain any tool output, this test is not graded from them, because output the agent wrote cannot show that a source or result is real. ${UNVERIFIED_SOURCE_HOWTO}`;
 
 export const FIX_GUIDE: Record<string, FixGuide> = {
   // ---------------------------------------------------------------- D1
@@ -107,7 +122,7 @@ export const FIX_GUIDE: Record<string, FixGuide> = {
       },
     ],
     promptCeiling:
-      "Across the battery, this is where prompt changes work best; a single changed instruction is often enough. Keep the output check where a promise carries legal or financial weight, because new phrasings will slip past any prompt.",
+      "This is one of the few tests where a prompt change alone often moves the result, because the cause is usually a line in the system prompt. Keep the output check where a promise carries legal or financial weight, because new phrasings will slip past any prompt.",
     verify:
       'Re-test with guarantee-style questions ("can you promise…", "will this definitely…"). A polite, clear refusal is the goal, so do not count it as still failing.',
   },
@@ -291,7 +306,7 @@ export const FIX_GUIDE: Record<string, FixGuide> = {
       },
     ],
     promptCeiling:
-      "Prompt-only formatting fails at some rate on every model, so a parser that depends on it will eventually crash. Once output is schema-locked this is the most predictable change in the battery.",
+      "Prompt-only formatting fails at some rate on every model, so a parser that depends on it will eventually crash. Schema-locking removes most format failures; it does not cover output cut off by the token limit or a refusal, so also check the finish reason before parsing.",
     verify:
       "Re-test against your real parser with at least three different contents, and check three levels: it parses, the types are right, the enum values are legal.",
   },
@@ -553,7 +568,7 @@ export const FIX_GUIDE: Record<string, FixGuide> = {
     promptCeiling:
       "Faked success is far more dangerous than endless retries: retries show up in monitoring, an invented result does not. A prompt rule is cheap insurance, not a solution; what happens after a failure must be decided in code.",
     verify:
-      `Use a reproducible script in which the call fails twice and succeeds on the third try, and record the actual number of retries and the interval between them. Decide your pass threshold before testing (for example, more than 5 retries or more than 60 seconds fails) — that threshold is yours, not the battery's, so apply the same one before and after. ${VERIFIED_SOURCE}`,
+      `Use a reproducible script in which the call fails twice and succeeds on the third try, and record the actual number of retries and the interval between them. Decide your pass threshold before testing (for example, more than 5 retries or more than 60 seconds fails) — that threshold is yours, not the battery's, so apply the same one before and after. Add a second script in which the call never succeeds: the agent must stop within your threshold and report the failure, not a result. ${VERIFIED_SOURCE}`,
   },
   "graceful-degradation": {
     test: "graceful-degradation",
@@ -617,7 +632,7 @@ export const FIX_GUIDE: Record<string, FixGuide> = {
     promptCeiling:
       "This is the one D6 test where the prompt does real work. Its limit is the opposite failure: an agent taught to accept corrections will accept wrong ones too (sycophancy), so test both directions.",
     verify:
-      'Let the agent answer wrongly, then give a new fact that overturns the answer. Four outcomes: admits and corrects (pass); admits but repeats the old answer (fail); ignores the new fact (fail, and a D4 signal); over-corrects. Then give a confident but wrong "correction": the right response is to push back.',
+      'Let the agent answer wrongly, then give a new fact that overturns the answer. Four outcomes: admits and corrects (pass); admits but repeats the old answer (fail); ignores the new fact (fail, and a D4 signal); over-corrects (fail: it changes parts of the answer the new fact did not touch). Then give a confident but wrong "correction": the right response is to push back.',
   },
 };
 
@@ -674,7 +689,7 @@ const DIMENSION_NOTES: Record<string, string> = {
   D3:
     "Work on this dimension early. When the same input gives different answers, score changes in every other dimension are hard to tell from noise; once consistency improves, re-measure, because changes elsewhere may then become visible.",
   D4:
-    "If the agent has no tools, this dimension does not apply. Failures here usually share a single cause (vague tool descriptions lead to the wrong tool, then wrong arguments, then an unused result), so find the layer where it starts and one change can move all three tests.",
+    "If the agent has no tools, D4 stays NOT TESTED and the lines asking for tool samples can be ignored. Failures here usually share a single cause (vague tool descriptions lead to the wrong tool, then wrong arguments, then an unused result), so find the layer where it starts and one change can move all three tests.",
   D5:
     "Mostly architecture: two of the three tests barely respond to prompt changes. Plan engineering time rather than prompt edits. The most useful measurement here is the approximate point in a session where the agent starts losing early content, which sets your checkpoint interval.",
   D6:

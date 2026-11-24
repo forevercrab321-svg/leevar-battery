@@ -4,7 +4,7 @@
 // moment the two can drift, the file becomes marketing — and the one thing this
 // repository sells is that its artefacts are derived rather than written.
 
-import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert, assertEquals } from "@std/assert";
 import { loadRecorded, referenceComposite, render } from "./render-example.ts";
 import { deriveCoverage, gradeWithheld, type ScoredDimension } from "../packages/scanner-core/src/coverage.ts";
 import { gradeLetter } from "../packages/scanner-core/src/grade.ts";

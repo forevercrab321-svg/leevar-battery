@@ -6,13 +6,15 @@
 import {
   assert,
   assertEquals,
-} from "https://deno.land/std@0.224.0/assert/mod.ts";
+} from "@std/assert";
 import { BATTERY } from "./battery.ts";
 import {
   FIX_GUIDE,
   FIX_SECTION_HEADING,
   MAKE_TESTABLE,
   renderFixDoc,
+  TESTABLE_SECTION_HEADING,
+  UNVERIFIED_SOURCE_HOWTO,
 } from "./fix-guide.ts";
 import { buildReportMd, type ReportInput } from "./report.ts";
 import type { DimensionScores, TestVerdict } from "./types.ts";
@@ -111,11 +113,14 @@ function report(scores: DimensionScores): string {
 
 /** The fix section alone, from its heading to the next H2 or the footer rule. */
 function section(md: string): string {
-  const start = md.indexOf(FIX_SECTION_HEADING);
-  if (start < 0) return "";
-  const rest = md.slice(start + FIX_SECTION_HEADING.length);
-  const end = rest.search(/^(## |---$)/m);
-  return FIX_SECTION_HEADING + (end < 0 ? rest : rest.slice(0, end));
+  for (const heading of [FIX_SECTION_HEADING, TESTABLE_SECTION_HEADING]) {
+    const start = md.indexOf(heading);
+    if (start < 0) continue;
+    const rest = md.slice(start + heading.length);
+    const end = rest.search(/^(## |---$)/m);
+    return heading + (end < 0 ? rest : rest.slice(0, end));
+  }
+  return "";
 }
 
 Deno.test("an all-PASS report has no fix section", () => {
@@ -185,6 +190,9 @@ Deno.test("a NOT TESTED probe gets one testability line and no fix", () => {
   const md = report(scoresWith({ "grounded-qa": ["fail", "absent"] }));
   const sec = section(md);
   assert(sec.length > 0, "an unevidenced probe printed no section at all");
+  // Nothing failed, so the heading must not say something did.
+  assert(sec.startsWith(TESTABLE_SECTION_HEADING), `wrong heading: ${sec.split("\n")[0]}`);
+  assert(!md.includes(FIX_SECTION_HEADING), "a report with no failure is headed 'How to fix what failed'");
   const lines = sec.split("\n").filter((l) => l.includes("`grounded-qa`"));
   assertEquals(
     lines.length,
@@ -232,4 +240,49 @@ Deno.test("docs/fixes/D1..D6 are exactly what the guide renders", async () => {
       `docs/fixes/${d.id}.md is stale — run \`deno task fixes\``,
     );
   }
+});
+
+Deno.test("no instruction a local user cannot follow: no bare 'run it in live mode'", () => {
+  // The CLI only runs transcript mode. Live mode exists through the library
+  // (gradeBattery with access.mode = "live") and as a hosted scan, and every
+  // instruction must say which, or it sends the reader nowhere.
+  const md = report(scoresWith({
+    "citation-fabrication": ["fail", "absent"],
+    "tool-selection": ["fail", "absent"],
+  }));
+  const texts = [
+    md,
+    ...Object.values(MAKE_TESTABLE),
+    ...Object.values(FIX_GUIDE).flatMap((g) => [g.why, g.verify, g.promptCeiling]),
+    ...BATTERY.map((d) => renderFixDoc(d.id)),
+  ];
+  for (const t of texts) {
+    for (const dead of [/run (it|this agent) in live mode/i, /run a live scan/i, /\(or a live endpoint\)/i]) {
+      assert(!dead.test(t), `unfollowable instruction ${dead} in:\n${t.slice(0, 300)}`);
+    }
+  }
+  assert(/gradeBattery/.test(UNVERIFIED_SOURCE_HOWTO) && /access\.mode/.test(UNVERIFIED_SOURCE_HOWTO),
+    "the library route is not named precisely");
+  assert(/hosted live scan/i.test(UNVERIFIED_SOURCE_HOWTO), "the hosted route is not named");
+  const verified = BATTERY.flatMap((d) => d.tests).filter((t) => t.needsVerifiedSource).map((t) => t.name);
+  for (const name of verified) {
+    assert(MAKE_TESTABLE[name].includes(UNVERIFIED_SOURCE_HOWTO), `${name}: testability hint lacks the shared route`);
+  }
+});
+
+Deno.test("the guide makes no claim this repository cannot back", () => {
+  const all = Object.values(FIX_GUIDE).flatMap((g) => [g.why, g.verify, g.promptCeiling, ...g.layers.map((l) => l.action)])
+    .join("\n") + BATTERY.map((d) => renderFixDoc(d.id)).join("\n");
+  // Rankings across tests come from experience this repository does not publish.
+  for (const claim of [/across the battery/i, /in the battery\./i, /of all eighteen/i, /work best/i]) {
+    assert(!claim.test(all), `unbacked cross-test claim: ${claim}`);
+  }
+  // Schema-locking does not cover output cut off by the token limit.
+  assert(/finish reason/i.test(FIX_GUIDE["format-contract-adherence"].promptCeiling), "format ceiling omits truncation");
+  // tool-failure-injection must test both failure shapes, not only backoff.
+  assert(/never succeeds/i.test(FIX_GUIDE["tool-failure-injection"].verify), "no never-succeeds script");
+  // Every one of the four self-correction outcomes is judged.
+  assert(/over-corrects \(fail/i.test(FIX_GUIDE["self-correction"].verify), "over-correction has no verdict");
+  // An agent without tools leaves D4 NOT TESTED; the doc must say what to do with that.
+  assert(/D4 stays NOT TESTED/.test(renderFixDoc("D4")), "D4 doc does not explain the no-tools case");
 });
