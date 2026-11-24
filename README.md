@@ -1,8 +1,25 @@
 # LEEVAR Battery
 
-**An 18-test, 6-dimension reliability battery for AI agents. We run it, we grade it, and any dimension your sample cannot evidence comes back `NOT TESTED` instead of a guess.**
+**Find out what is wrong with your AI agent on your own machine, for free, and get told how to fix it. MIT licensed. 18 tests across 6 dimensions, and anything your sample cannot evidence comes back `NOT TESTED` instead of a guess.**
 
-Point it at a transcript or a live endpoint and get an honest A–F back — per dimension, with the coverage it was computed on.
+Run the full battery on your own machine. The demo needs no account, no API key, no model and no network once it is cloned:
+
+```bash
+# Deno 2.x: one binary, no node_modules
+curl -fsSL https://deno.land/install.sh | sh
+
+git clone https://github.com/forevercrab321-svg/leevar-battery
+cd leevar-battery
+deno task demo
+```
+
+The scanner is in this repository and grades against a model **you** choose. Each test that fails or partly fails with evidence gets a `## How to fix what failed` section in the report, covering why it happens, which layer to change, and how to check the fix. Tests the sample cannot evidence are listed as `NOT TESTED` and are left out of the grade.
+
+Want to see what these faults look like in the wild? [The fault catalog](docs/catalog/README.md) lists 10 real ones that open-source maintainers confirmed, with links to the original threads.
+
+---
+
+## Prefer not to install? Run a hosted scan
 
 ```bash
 curl -sSL https://www.leevar.live/api/scan \
@@ -56,7 +73,7 @@ does not produce a generous score; it produces `NOT TESTED`.
 
 ## Run it yourself — the scanner is in this repository
 
-Everything above describes the hosted run. The engine behind it is here, under
+The hosted scan runs the same engine that is here, under
 MIT, and it grades locally against a model **you** choose. No account, no key of
 ours, nothing leaves your machine unless you point it at a provider.
 
